@@ -119,8 +119,16 @@ public class AwsEc2Service {
     }
 
     public CfnInstance createNginxInstance(String subnetId, String name, String securityGroupId, String balancerHostname) {
-        String bash = String.format("#!/bin/bash export ALB_HOST=%s",
-                balancerHostname);
+        String userData =
+                String.format(
+                        """
+                                #!/bin/bash\\n
+                                echo 'export ALB_HOST=%s' >> ~/.bash_profile\\n
+                                source ~/.bash_profile\\n
+                                sudo nginx -s reload
+                                """,
+                        balancerHostname
+                );
 
         return CfnInstance.Builder.create(scope, prefix + name + "-instance")
                 .tags(List.of(CfnTag.builder().key("Name").value(prefix + "NGINX").build()))
@@ -129,7 +137,7 @@ public class AwsEc2Service {
                 .imageId("ami-0904c2bf402fc81cc")
                 .keyName("authSebas")
                 .securityGroupIds(List.of(securityGroupId))
-                .userData(Base64.getEncoder().encodeToString(bash.getBytes()))
+                .userData(Base64.getEncoder().encodeToString(userData.getBytes()))
                 .build();
     }
 
