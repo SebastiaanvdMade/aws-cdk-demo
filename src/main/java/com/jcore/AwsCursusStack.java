@@ -10,10 +10,11 @@ import software.constructs.Construct;
 
 import java.util.List;
 
-
 public class AwsCursusStack extends Stack {
 
     private static final String PREFIX = "sebastiaans-";
+
+    private final AwsEc2Service ec2Service = new AwsEc2Service(this, PREFIX);
 
     public AwsCursusStack(final Construct scope, final String id) {
         this(scope, id, null);
@@ -31,14 +32,26 @@ public class AwsCursusStack extends Stack {
                 build();
 
         var vpc = createVpc("10.0.0.0/16");
-        var publicSubnet = createSubnet("10.0.101.0/24", vpc.getAttrVpcId(), true);
-        var privateSubnet = createSubnet("10.0.201.0/24", vpc.getAttrVpcId(), false);
+        var publicSubnetOne = createSubnet("10.0.111.0/24", vpc.getAttrVpcId(), true, "uno", "a");
+        var privateSubnetOne = createSubnet("10.0.221.0/24", vpc.getAttrVpcId(), false, "uno", "a");
+        var privateSubnetTwo = createSubnet("10.0.222.0/24", vpc.getAttrVpcId(), false, "dos", "b");
         var gateway = createInternetGatewayAndAttachToVpc(vpc.getAttrVpcId());
-        var natGateway = createNatGatewayAndAttachToSubnet(publicSubnet.getSubnetId());
-        var rt1 = createRouteTable(vpc, publicSubnet, true);
-        var publicRoute = createRoute(rt1.getAttrRouteTableId(), gateway.getAttrInternetGatewayId(), true);
-        var rt2 = createRouteTable(vpc, privateSubnet, false);
-        var privateRoute = createRoute(rt2.getAttrRouteTableId(), natGateway.getAttrNatGatewayId(), false);
+        var natGateway = createNatGatewayAndAttachToSubnet(publicSubnetOne.getSubnetId());
+        var rt1 = createRouteTable(vpc, publicSubnetOne, true, "A");
+        var publicRouteA = createRoute(rt1.getAttrRouteTableId(), gateway.getAttrInternetGatewayId(), true, "A");
+        var rtA = createRouteTable(vpc, privateSubnetOne, false, "A");
+        var rtB = createRouteTable(vpc, privateSubnetTwo, false, "B");
+        var privateRouteA = createRoute(rtA.getAttrRouteTableId(), natGateway.getAttrNatGatewayId(), false, "A");
+        var privateRouteB = createRoute(rtB.getAttrRouteTableId(), natGateway.getAttrNatGatewayId(), false, "B");
+
+        var iamRole = ec2Service.getCnfRole();
+        var securityGroup = ec2Service.createSecurityGroup(vpc.getAttrVpcId(), "default");
+        var securityGroupBalancer = ec2Service.createSecurityGroup(vpc.getAttrVpcId(), "balancer");
+        var balancer = ec2Service.createLoadBalancer(vpc.getAttrVpcId(),
+                List.of(privateSubnetOne.getSubnetId(), privateSubnetTwo.getSubnetId()),
+                securityGroupBalancer.getAttrGroupId());
+
+        var nginxInstance = ec2Service.createNginxInstance(publicSubnetOne.getSubnetId(), "NGINX", securityGroup.getAttrGroupId(), balancer.getAttrDnsName());
     }
 
     private CfnVPC createVpc(final String cidrBlock) {
@@ -48,23 +61,23 @@ public class AwsCursusStack extends Stack {
         return vpc;
     }
 
-    private ISubnet createSubnet(final String cidrBlock, final String vpcId, boolean publicNetwork) {
+    private ISubnet createSubnet(final String cidrBlock, final String vpcId, boolean publicNetwork, String name, String zone) {
         String label = publicNetwork ? "public" : "private";
-        var publicCfnSubnet =
-                CfnSubnet.Builder.create(this, PREFIX + label + "-cfn-subnet").
-                        availabilityZone(getRegion() + "a").
+        String id = String.format("%s-%s-%s-%s", PREFIX, label, "subnet", name);
+        var cfnSubnet =
+                CfnSubnet.Builder.create(this, id + "-cfn").
+                        availabilityZone(getRegion() + zone).
                         cidrBlock(cidrBlock).
                         mapPublicIpOnLaunch(publicNetwork).
                         vpcId(vpcId).
                         build();
-        Tags.of(publicCfnSubnet).add("Name", PREFIX + label + "-subnet");
-        var publicSubnet =
-                Subnet.fromSubnetId(this, PREFIX + label + "-subnet", publicCfnSubnet.getAttrSubnetId());
-        CfnOutput.Builder.create(this, label + "SubnetCreated").
-                value("SubnetId: " + publicSubnet.getSubnetId()).build();
-        return publicSubnet;
+        Tags.of(cfnSubnet).add("Name", id);
+        var subnet =
+                Subnet.fromSubnetId(this, id, cfnSubnet.getAttrSubnetId());
+        CfnOutput.Builder.create(this, label + "-" + name + "SubnetCreated").
+                value("SubnetId: " + subnet.getSubnetId()).build();
+        return subnet;
     }
-
 
     private CfnInternetGateway createInternetGatewayAndAttachToVpc(final String vpcId) {
         var internetGateway =
@@ -86,26 +99,26 @@ public class AwsCursusStack extends Stack {
     }
 
     private CfnRouteTable createRouteTable(
-            final CfnVPC vpc, final ISubnet subnet, final boolean publicNetwork) {
+            final CfnVPC vpc, final ISubnet subnet, final boolean publicNetwork, String name) {
         String label = publicNetwork ? "public" : "private";
         var routeTable =
-                CfnRouteTable.Builder.create(this, PREFIX + label + "-route-table").
+                CfnRouteTable.Builder.create(this, PREFIX + label + "-route-table-" + name).
                         vpcId(vpc.getAttrVpcId()).
-                        tags(List.of(CfnTag.builder().key("Name").value(label + "-route-table").build())).
+                        tags(List.of(CfnTag.builder().key("Name").value(label + "-route-table-" + name).build())).
                         build();
         System.out.println("Created RouteTable: " + routeTable.getAttrRouteTableId());
 
-        CfnOutput.Builder.create(this, PREFIX + label + "RouteTableCreated").
+        CfnOutput.Builder.create(this, PREFIX + label + "-" + name + "RouteTableCreated").
                 value("RouteTableId: " + routeTable.getAttrRouteTableId()).
                 build();
 
         var subnetRouteTableAssociation =
-                CfnSubnetRouteTableAssociation.Builder.create(this, PREFIX + label + "-subnet-route-table-association").
+                CfnSubnetRouteTableAssociation.Builder.create(this, PREFIX + label + "-" + name + "-subnet-route-table-association").
                         subnetId(subnet.getSubnetId()).
                         routeTableId(routeTable.getAttrRouteTableId()).
                         build();
 
-        CfnOutput.Builder.create(this, PREFIX + label + "SubnetRouteTableAssociationCreated").
+        CfnOutput.Builder.create(this, PREFIX + label + "-" + name + "SubnetRouteTableAssociationCreated").
                 value(
                         String.format(
                                 "SubnetId: %s, RouteTableId: %s",
@@ -117,9 +130,9 @@ public class AwsCursusStack extends Stack {
         return routeTable;
     }
 
-    private CfnRoute createRoute(final String routeTableId, String gatewayId, final boolean publicNetwork) {
+    private CfnRoute createRoute(final String routeTableId, String gatewayId, final boolean publicNetwork, String name) {
         var label = publicNetwork ? "internet" : "nat";
-        var builder = CfnRoute.Builder.create(this, PREFIX + label + "-gateway-route").
+        var builder = CfnRoute.Builder.create(this, PREFIX + label + "-" + name + "-gateway-route").
                 routeTableId(routeTableId).
                 destinationCidrBlock("0.0.0.0/0");
         if (publicNetwork) {
@@ -143,4 +156,6 @@ public class AwsCursusStack extends Stack {
         CfnOutput.Builder.create(this, "NatGatewayCreated").value("NatGatewayID: " + natGateway.getAttrNatGatewayId()).build();
         return natGateway;
     }
+
+
 }
