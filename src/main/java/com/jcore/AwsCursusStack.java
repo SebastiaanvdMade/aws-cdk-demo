@@ -15,6 +15,7 @@ public class AwsCursusStack extends Stack {
     private static final String PREFIX = "sebastiaans-";
 
     private final AwsEc2Service ec2Service = new AwsEc2Service(this, PREFIX);
+    private final AwsEcsService ecsService = new AwsEcsService(this, PREFIX);
 
     public AwsCursusStack(final Construct scope, final String id) {
         this(scope, id, null);
@@ -35,6 +36,8 @@ public class AwsCursusStack extends Stack {
         var publicSubnetOne = createSubnet("10.0.111.0/24", vpc.getAttrVpcId(), true, "uno", "a");
         var privateSubnetOne = createSubnet("10.0.221.0/24", vpc.getAttrVpcId(), false, "uno", "a");
         var privateSubnetTwo = createSubnet("10.0.222.0/24", vpc.getAttrVpcId(), false, "dos", "b");
+        var privateSubnets = List.of(privateSubnetOne.getSubnetId(), privateSubnetTwo.getSubnetId());
+
         var gateway = createInternetGatewayAndAttachToVpc(vpc.getAttrVpcId());
         var natGateway = createNatGatewayAndAttachToSubnet(publicSubnetOne.getSubnetId());
         var rt1 = createRouteTable(vpc, publicSubnetOne, true, "A");
@@ -52,6 +55,13 @@ public class AwsCursusStack extends Stack {
                 securityGroupBalancer.getAttrGroupId());
 
         var nginxInstance = ec2Service.createNginxInstance(publicSubnetOne.getSubnetId(), "NGINX", securityGroup.getAttrGroupId(), balancer.getAttrDnsName());
+
+        var cluster = ecsService.createCluster();
+
+        var targetGroup = ecsService.createTargetGroup(vpc.getAttrVpcId());
+        var listener = ecsService.createListener(balancer.getAttrLoadBalancerArn(), targetGroup.getAttrTargetGroupArn());
+        var messengerService = ecsService.createService(cluster.getAttrArn(), targetGroup.getAttrTargetGroupArn(), securityGroup.getAttrId(), privateSubnets);
+
     }
 
     private CfnVPC createVpc(final String cidrBlock) {

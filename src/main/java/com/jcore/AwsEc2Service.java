@@ -5,9 +5,7 @@ import software.amazon.awscdk.services.ec2.CfnInstance;
 import software.amazon.awscdk.services.ec2.CfnSecurityGroup;
 import software.amazon.awscdk.services.ec2.CfnSecurityGroupEgress;
 import software.amazon.awscdk.services.ec2.CfnSecurityGroupIngress;
-import software.amazon.awscdk.services.elasticloadbalancingv2.CfnListener;
 import software.amazon.awscdk.services.elasticloadbalancingv2.CfnLoadBalancer;
-import software.amazon.awscdk.services.elasticloadbalancingv2.CfnTargetGroup;
 import software.amazon.awscdk.services.iam.CfnRole;
 import software.constructs.Construct;
 
@@ -50,39 +48,12 @@ public class AwsEc2Service {
     }
 
     public CfnLoadBalancer createLoadBalancer(String vpcId, List<String> subnets, String securityGroup) {
-        //var targetGroup = createTargetGroup(vpcId);
-
-        var balancer = CfnLoadBalancer.Builder.create(scope, prefix + "balancer")
+        return CfnLoadBalancer.Builder.create(scope, prefix + "balancer")
                 .name("balanceer-monsieur")
                 .type("application")
                 .subnets(subnets)
                 .securityGroups(List.of(securityGroup))
                 .scheme("internal")
-                .build();
-
-        return balancer;
-    }
-
-    private CfnListener createCfnListener(String targetGroupArn) {
-        return CfnListener.Builder.create(scope, prefix + "listener")
-                .defaultActions(List.of(
-                        CfnListener.ActionProperty.builder()
-                                .type("forward")
-                                .targetGroupArn(targetGroupArn)
-                                .build()
-                ))
-                .port(80)
-                .protocol("HTTP")
-                .build();
-    }
-
-    private CfnTargetGroup createTargetGroup(String vpcId) {
-        return CfnTargetGroup.Builder.create(scope, prefix + "targetgroup")
-                .vpcId(vpcId)
-                .protocol("HTTP")
-                .port(80)
-                .targetType("instance") // or "ip" or "lambda"
-                .healthCheckEnabled(true)
                 .build();
     }
 
@@ -91,14 +62,15 @@ public class AwsEc2Service {
                 .groupDescription(description)
                 .vpcId(vpcId)
                 .build();
-        makeInboudRule(securityGroup.getAttrId(), "0.0.0.0/0", 80, description + "-http");
-        makeInboudRule(securityGroup.getAttrId(), "0.0.0.0/0", 22, description + "-ssh");
+        makeInboundRule(securityGroup.getAttrId(), "0.0.0.0/0", 80, description + "-http80");
+        makeInboundRule(securityGroup.getAttrId(), "0.0.0.0/0", 8080, description + "-http8080");
+        makeInboundRule(securityGroup.getAttrId(), "0.0.0.0/0", 22, description + "-ssh");
         makeOutboundRule(securityGroup.getAttrId(), description);
 
         return securityGroup;
     }
 
-    private CfnSecurityGroupIngress makeInboudRule(String sgId, String cidrIp, Number port, String description) {
+    private CfnSecurityGroupIngress makeInboundRule(String sgId, String cidrIp, Number port, String description) {
         return CfnSecurityGroupIngress.Builder.create(scope, prefix + description + "-rule")
                 .description(description)
                 .cidrIp(cidrIp)
