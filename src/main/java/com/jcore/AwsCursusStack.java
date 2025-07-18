@@ -5,7 +5,17 @@ import software.amazon.awscdk.CfnTag;
 import software.amazon.awscdk.Stack;
 import software.amazon.awscdk.StackProps;
 import software.amazon.awscdk.Tags;
-import software.amazon.awscdk.services.ec2.*;
+import software.amazon.awscdk.services.ec2.CfnEIP;
+import software.amazon.awscdk.services.ec2.CfnInternetGateway;
+import software.amazon.awscdk.services.ec2.CfnNatGateway;
+import software.amazon.awscdk.services.ec2.CfnRoute;
+import software.amazon.awscdk.services.ec2.CfnRouteTable;
+import software.amazon.awscdk.services.ec2.CfnSubnet;
+import software.amazon.awscdk.services.ec2.CfnSubnetRouteTableAssociation;
+import software.amazon.awscdk.services.ec2.CfnVPC;
+import software.amazon.awscdk.services.ec2.CfnVPCGatewayAttachment;
+import software.amazon.awscdk.services.ec2.ISubnet;
+import software.amazon.awscdk.services.ec2.Subnet;
 import software.constructs.Construct;
 
 import java.util.List;
@@ -60,8 +70,9 @@ public class AwsCursusStack extends Stack {
 
         var targetGroup = ecsService.createTargetGroup(vpc.getAttrVpcId());
         var listener = ecsService.createListener(balancer.getAttrLoadBalancerArn(), targetGroup.getAttrTargetGroupArn());
+        listener.addDependency(targetGroup);
         var messengerService = ecsService.createService(cluster.getAttrArn(), targetGroup.getAttrTargetGroupArn(), securityGroup.getAttrId(), privateSubnets);
-
+        messengerService.addDependency(listener);
     }
 
     private CfnVPC createVpc(final String cidrBlock) {

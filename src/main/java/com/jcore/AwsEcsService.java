@@ -13,7 +13,7 @@ public class AwsEcsService {
     private final Construct scope;
     private final String prefix;
 
-    private final String CONTAINER_NAME = "messenger-geleend-van-jeroen";
+    private final String CONTAINER_NAME = "sebastiaans-coole-messenger-container";
 
     public AwsEcsService(Construct scope, String prefix) {
         this.scope = scope;
@@ -33,17 +33,16 @@ public class AwsEcsService {
                 .create(scope, prefix + "messenger-service-taskdef")
                 .runtimePlatform(
                         CfnTaskDefinition.RuntimePlatformProperty.builder()
-                                .cpuArchitecture("X86_84")
-                                .operatingSystemFamily("Linux")
+                                .cpuArchitecture("X86_64")
+                                .operatingSystemFamily("LINUX")
                                 .build()
                 )
                 .containerDefinitions(List.of(
                         CfnTaskDefinition.ContainerDefinitionProperty.builder()
                                 .name(CONTAINER_NAME)
-                                .image("039612879714.dkr.ecr.eu-central-1.amazonaws.com/jdriven/messenger:latest")
-                                .cpu(0)
+                                .image("039612879714.dkr.ecr.eu-central-1.amazonaws.com/sebastiaan/messenger:latest")
+                                .cpu(256)
                                 .memory(1024)
-                                .memoryReservation(512)
                                 .essential(true)
                                 .portMappings(List.of(
                                         CfnTaskDefinition.PortMappingProperty.builder()
@@ -55,10 +54,11 @@ public class AwsEcsService {
                                 ))
                                 .build()
                 ))
-                .cpu(".5 vCPU")
-                .memory("1 GB")
-                .taskRoleArn("ecsTaskExecutionRole")
+                .requiresCompatibilities(List.of("FARGATE"))
+                .cpu("256")
+                .memory("1024")
                 .networkMode("awsvpc")
+                .taskRoleArn("ecsTaskExecutionRole")
                 .executionRoleArn("ecsTaskExecutionRole")
                 .build();
     }
@@ -86,6 +86,8 @@ public class AwsEcsService {
                 )
                 .desiredCount(1)
                 .cluster(cluster)
+                .launchType("FARGATE")
+                .platformVersion("LATEST")
                 .build();
     }
 
@@ -113,6 +115,9 @@ public class AwsEcsService {
                 .port(8080)
                 .protocol("HTTP")
                 .vpcId(vpc)
+                .healthCheckEnabled(true)
+                .healthCheckProtocol("HTTP")
+                .healthCheckPath("/api/v1/messenger/info")
                 .build();
     }
 }
