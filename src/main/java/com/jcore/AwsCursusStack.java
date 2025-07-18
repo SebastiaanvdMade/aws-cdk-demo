@@ -57,14 +57,14 @@ public class AwsCursusStack extends Stack {
         var privateRouteA = createRoute(rtA.getAttrRouteTableId(), natGateway.getAttrNatGatewayId(), false, "A");
         var privateRouteB = createRoute(rtB.getAttrRouteTableId(), natGateway.getAttrNatGatewayId(), false, "B");
 
-        var iamRole = ec2Service.getCnfRole();
+        //var iamRole = ec2Service.getCnfRole();
         var securityGroup = ec2Service.createSecurityGroup(vpc.getAttrVpcId(), "default");
         var securityGroupBalancer = ec2Service.createSecurityGroup(vpc.getAttrVpcId(), "balancer");
         var balancer = ec2Service.createLoadBalancer(vpc.getAttrVpcId(),
                 List.of(privateSubnetOne.getSubnetId(), privateSubnetTwo.getSubnetId()),
                 securityGroupBalancer.getAttrGroupId());
 
-        var nginxInstance = ec2Service.createNginxInstance(publicSubnetOne.getSubnetId(), "NGINX", securityGroup.getAttrGroupId(), balancer.getAttrDnsName());
+        var nginxInstance = ec2Service.createNginxInstance(publicSubnetOne.getSubnetId(), "NGINX", securityGroup.getAttrGroupId());
 
         var cluster = ecsService.createCluster();
 

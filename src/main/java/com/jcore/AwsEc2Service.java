@@ -6,7 +6,9 @@ import software.amazon.awscdk.services.ec2.CfnSecurityGroup;
 import software.amazon.awscdk.services.ec2.CfnSecurityGroupEgress;
 import software.amazon.awscdk.services.ec2.CfnSecurityGroupIngress;
 import software.amazon.awscdk.services.elasticloadbalancingv2.CfnLoadBalancer;
+import software.amazon.awscdk.services.iam.CfnInstanceProfile;
 import software.amazon.awscdk.services.iam.CfnRole;
+import software.amazon.awscdk.services.ssm.StringParameter;
 import software.constructs.Construct;
 
 import java.util.Base64;
@@ -25,9 +27,14 @@ public class AwsEc2Service {
         this.prefix = prefix;
     }
 
-    public CfnRole getCnfRole() {
-        return CfnRole.Builder.create(scope, prefix + "IAMRole")
+    private CfnInstanceProfile getInstanceProfile() {
+        var role = CfnRole.Builder.create(scope, prefix + "IAMRole")
                 .assumeRolePolicyDocument(createAssumeRolePolicy())
+                .managedPolicyArns(List.of("arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess"))
+                .build();
+        return CfnInstanceProfile.Builder
+                .create(scope, prefix + "nginx-instance-profile")
+                .roles(List.of(role.getRef()))
                 .build();
     }
 
@@ -48,13 +55,20 @@ public class AwsEc2Service {
     }
 
     public CfnLoadBalancer createLoadBalancer(String vpcId, List<String> subnets, String securityGroup) {
-        return CfnLoadBalancer.Builder.create(scope, prefix + "balancer")
+        var result = CfnLoadBalancer.Builder.create(scope, prefix + "balancer")
                 .name("balanceer-monsieur")
                 .type("application")
                 .subnets(subnets)
                 .securityGroups(List.of(securityGroup))
                 .scheme("internal")
                 .build();
+
+        var parameter = StringParameter.Builder.create(scope, "AlbDnsParameter")
+                .parameterName("/sebas/alb-dns")
+                .stringValue(result.getAttrDnsName())
+                .build();
+
+        return result;
     }
 
     public CfnSecurityGroup createSecurityGroup(String vpcId, String description) {
@@ -90,27 +104,27 @@ public class AwsEc2Service {
                 .build();
     }
 
-    public CfnInstance createNginxInstance(String subnetId, String name, String securityGroupId, String balancerHostname) {
+    public CfnInstance createNginxInstance(String subnetId, String name, String securityGroupId) {
         String userData =
-                String.format(
-                        """
-                                #!/bin/bash\\n
-                                echo 'export ALB_HOST=%s' >> ~/.bash_profile\\n
-                                source ~/.bash_profile\\n
-                                sudo nginx -s reload
-                                """,
-                        balancerHostname
-                );
+                """
+                        #!/bin/bash
+                        DNS_NAME=$(aws ssm get-parameter --name "/sebas/alb-dns" --region eu-central-1 --query "Parameter.Value" --output text)
+                        export ALB_HOST=$DNS_NAME
+                        systemctl start nginx
+                        systemctl enable nginx
+                        """;
 
-        return CfnInstance.Builder.create(scope, prefix + name + "-instance")
+        var result = CfnInstance.Builder.create(scope, prefix + name + "-instance")
                 .tags(List.of(CfnTag.builder().key("Name").value(prefix + "NGINX").build()))
                 .subnetId(subnetId)
                 .instanceType("t2.micro")
                 .imageId("ami-0904c2bf402fc81cc")
                 .keyName("authSebas")
                 .securityGroupIds(List.of(securityGroupId))
+                .iamInstanceProfile(getInstanceProfile().getRef())
                 .userData(Base64.getEncoder().encodeToString(userData.getBytes()))
                 .build();
+        return result;
     }
 
 }
