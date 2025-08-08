@@ -26,6 +26,7 @@ public class AwsCursusStack extends Stack {
 
     private final AwsEc2Service ec2Service = new AwsEc2Service(this, PREFIX);
     private final AwsEcsService ecsService = new AwsEcsService(this, PREFIX);
+    private final AwsQueueService queueService = new AwsQueueService(this, PREFIX);
 
     public AwsCursusStack(final Construct scope, final String id) {
         this(scope, id, null);
@@ -41,6 +42,10 @@ public class AwsCursusStack extends Stack {
                 description("").
                 value("Region: " + this.getRegion()).
                 build();
+
+        //Queue
+        var queue = queueService.createQueue("sebas-CDK-message-queue");
+        var topic = queueService.createTopic(queue.getAttrArn());
 
         var vpc = createVpc("10.0.0.0/16");
         var publicSubnetOne = createSubnet("10.0.111.0/24", vpc.getAttrVpcId(), true, "uno", "a");
@@ -68,19 +73,36 @@ public class AwsCursusStack extends Stack {
 
         var cluster = ecsService.createCluster();
 
-        //Messenger SEND
         var targetGroupSend = ecsService.createTargetGroup(vpc.getAttrVpcId(), "send", 80);
-        var listenerSend = ecsService.createListener(balancer.getAttrLoadBalancerArn(), targetGroupSend.getAttrTargetGroupArn(), "send", 80);
-        listenerSend.addDependency(targetGroupSend);
-        var messengerServiceSend = ecsService.createService(cluster.getAttrArn(), targetGroupSend.getAttrTargetGroupArn(), securityGroup.getAttrId(), privateSubnets, "send", 80);
-        messengerServiceSend.addDependency(listenerSend);
+        var targetGroupReceive = ecsService.createTargetGroup(vpc.getAttrVpcId(), "receive", 80);
+
+        var listener = ecsService.createListener(balancer.getAttrLoadBalancerArn(), 80);
+        listener.addDependency(targetGroupSend);
+        listener.addDependency(targetGroupReceive);
+        var listenerRuleSend = ecsService.createListenerRule(listener.getAttrListenerArn(), targetGroupSend.getAttrTargetGroupArn(), "send", 1);
+        var listenerRuleReceive = ecsService.createListenerRule(listener.getAttrListenerArn(), targetGroupReceive.getAttrTargetGroupArn(), "receive", 2);
+        var listenerRuleWaiting = ecsService.createLoading(listener.getAttrListenerArn(), 50);
+
+        //Messenger SEND
+        var messengerServiceSend = ecsService.createService(
+                cluster.getAttrArn(),
+                targetGroupSend.getAttrTargetGroupArn(),
+                securityGroup.getAttrId(), privateSubnets,
+                "send", 80,
+                topic.getTopicName(),
+                queue.getAttrArn());
+        messengerServiceSend.addDependency(listener);
 
         //Messenger RECEIVE
-        var targetGroupReceive = ecsService.createTargetGroup(vpc.getAttrVpcId(), "receive", 81);
-        var listenerReceive = ecsService.createListener(balancer.getAttrLoadBalancerArn(), targetGroupReceive.getAttrTargetGroupArn(), "receive", 81);
-        listenerReceive.addDependency(targetGroupReceive);
-        var messengerServiceReceive = ecsService.createService(cluster.getAttrArn(), targetGroupReceive.getAttrTargetGroupArn(), securityGroup.getAttrId(), privateSubnets, "receive", 81);
-        messengerServiceReceive.addDependency(listenerReceive);
+        var messengerServiceReceive = ecsService.createService(
+                cluster.getAttrArn(),
+                targetGroupReceive.getAttrTargetGroupArn(),
+                securityGroup.getAttrId(),
+                privateSubnets,
+                "receive", 80,
+                topic.getTopicName(),
+                queue.getAttrArn());
+        messengerServiceReceive.addDependency(listener);
     }
 
     private CfnVPC createVpc(final String cidrBlock) {

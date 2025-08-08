@@ -4,6 +4,7 @@ import software.amazon.awscdk.services.ecs.CfnCluster;
 import software.amazon.awscdk.services.ecs.CfnService;
 import software.amazon.awscdk.services.ecs.CfnTaskDefinition;
 import software.amazon.awscdk.services.elasticloadbalancingv2.CfnListener;
+import software.amazon.awscdk.services.elasticloadbalancingv2.CfnListenerRule;
 import software.amazon.awscdk.services.elasticloadbalancingv2.CfnTargetGroup;
 import software.amazon.awscdk.services.iam.CfnRole;
 import software.constructs.Construct;
@@ -30,7 +31,7 @@ public class AwsEcsService {
                 .build();
     }
 
-    public CfnTaskDefinition createMessengerService(String mode, int port) {
+    public CfnTaskDefinition createMessengerService(String mode, int port, String snsTopic, String sqsQueue) {
 
         var taskRole = createTaskRole(mode);
 
@@ -61,6 +62,14 @@ public class AwsEcsService {
                                         CfnTaskDefinition.KeyValuePairProperty.builder()
                                                 .name("SERVER_SERVLET_CONTEXT-PATH")
                                                 .value("/" + mode)
+                                                .build(),
+                                        CfnTaskDefinition.KeyValuePairProperty.builder()
+                                                .name("AWS_SNSTOPIC")
+                                                .value(snsTopic)
+                                                .build(),
+                                        CfnTaskDefinition.KeyValuePairProperty.builder()
+                                                .name("AWS_SQSQUEUE")
+                                                .value(sqsQueue)
                                                 .build()
                                 ))
                                 .portMappings(List.of(
@@ -125,10 +134,20 @@ public class AwsEcsService {
 
     }
 
-    public CfnService createService(String cluster, String targetGroup, String securityGroup, List<String> subnets, String mode, int port) {
-        var taskDefinition = createMessengerService(mode, port);
+    public CfnService createService(
+            String cluster,
+            String targetGroup,
+            String securityGroup,
+            List<String> subnets,
+            String mode,
+            int port,
+            String snsTopic,
+            String sqsQueue
+    ) {
+
+        var taskDefinition = createMessengerService(mode, port, snsTopic, sqsQueue);
         return CfnService.Builder
-                .create(scope, "%smessenger-%s-service".formatted(prefix, mode))
+                .create(scope, "%smessenger-%s-servies".formatted(prefix, mode))
                 .taskDefinition(taskDefinition.getAttrTaskDefinitionArn())
                 .loadBalancers(List.of(
                         CfnService.LoadBalancerProperty.builder()
@@ -153,19 +172,68 @@ public class AwsEcsService {
                 .build();
     }
 
-    public CfnListener createListener(String loadBalancer, String targetGroup, String mode, int port) {
+    public CfnListener createListener(String loadBalancer, int port) {
         return CfnListener.Builder
-                .create(scope, prefix + "HTTP-listener-" + mode)
+                .create(scope, prefix + "HTTP-listener")
                 .port(port)
                 .loadBalancerArn(loadBalancer)
                 .protocol("HTTP")
-                .defaultActions(List.of(
-                        CfnListener.ActionProperty.builder()
-                                .type("forward")
-                                .targetGroupArn(targetGroup)
-                                .build()
+                .defaultActions(List.of(CfnListener.ActionProperty.builder()
+                        .type("fixed-response")
+                        .fixedResponseConfig(CfnListener.FixedResponseConfigProperty.builder()
+                                .statusCode("404")
+                                .contentType("text/html")
+                                .messageBody("""
+                                        <h3>Helaas pindakaas, je prinses is in een ander kasteel.</h3>
+                                        <p>(probeer eens /send of /receive)</p>
+                                        """)
+                                .build())
+                        .build()
                 ))
                 .build();
+    }
+
+    public CfnListenerRule createListenerRule(String listener, String targetGroup, String mode, int prio) {
+        return CfnListenerRule.Builder
+                .create(scope, "%slistener-rule-%s".formatted(prefix, mode))
+                .priority(prio)
+                .listenerArn(listener)
+                .actions(List.of(CfnListenerRule.ActionProperty.builder()
+                        .type("forward")
+                        .targetGroupArn(targetGroup)
+                        .build())
+                ).conditions(List.of(createPathPatternRule(List.of("/%s*".formatted(mode)))))
+                .build();
+    }
+
+    public CfnListenerRule createLoading(String listener, int prio) {
+        return CfnListenerRule.Builder
+                .create(scope, "%slistener-loading-rule".formatted(prefix))
+                .priority(prio)
+                .listenerArn(listener)
+                .actions(List.of(CfnListenerRule.ActionProperty.builder()
+                        .type("fixed-response")
+                        .fixedResponseConfig(CfnListenerRule.FixedResponseConfigProperty.builder()
+                                .statusCode("404")
+                                .contentType("text/html")
+                                .messageBody("""
+                                        <h3>Sorry, we zijn nog niet zo ver...</h3>
+                                        <p>De pagina is nog aan het laden</p>
+                                        """)
+                                .build()
+                        ).build())
+                ).conditions(List.of(
+                        createPathPatternRule(List.of("/send*", "/receive*"))
+                )).build();
+    }
+
+    private CfnListenerRule.RuleConditionProperty createPathPatternRule(List<String> paths) {
+        return CfnListenerRule.RuleConditionProperty.builder()
+                .field("path-pattern")
+                .pathPatternConfig(CfnListenerRule.PathPatternConfigProperty.builder()
+                        .values(paths)
+                        .build()
+                ).build();
     }
 
     public CfnTargetGroup createTargetGroup(String vpc, String mode, int port) {
