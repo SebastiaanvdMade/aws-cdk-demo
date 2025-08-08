@@ -30,12 +30,12 @@ public class AwsEcsService {
                 .build();
     }
 
-    public CfnTaskDefinition createTaskDefinition() {
+    public CfnTaskDefinition createMessengerService(String mode, int port) {
 
-        var taskRole = createTaskRole();
+        var taskRole = createTaskRole(mode);
 
         return CfnTaskDefinition.Builder
-                .create(scope, prefix + "messenger-service-taskdef")
+                .create(scope, "%smessenger-%s-service-taskdef".formatted(prefix, mode))
                 .runtimePlatform(
                         CfnTaskDefinition.RuntimePlatformProperty.builder()
                                 .cpuArchitecture("X86_64")
@@ -52,18 +52,26 @@ public class AwsEcsService {
                                 .environment(List.of(
                                         CfnTaskDefinition.KeyValuePairProperty.builder()
                                                 .name("SPRING_PROFILES_INCLUDE")
-                                                .value("nodb,send")
+                                                .value("nodb,%s".formatted(mode))
+                                                .build(),
+                                        CfnTaskDefinition.KeyValuePairProperty.builder()
+                                                .name("SERVER_PORT")
+                                                .value(String.valueOf(port))
+                                                .build(),
+                                        CfnTaskDefinition.KeyValuePairProperty.builder()
+                                                .name("SERVER_SERVLET_CONTEXT-PATH")
+                                                .value("/" + mode)
                                                 .build()
                                 ))
                                 .portMappings(List.of(
                                         CfnTaskDefinition.PortMappingProperty.builder()
-                                                .hostPort(80)
-                                                .name("80")
-                                                .containerPort(80)
+                                                .hostPort(port)
+                                                .name(String.valueOf(port))
+                                                .containerPort(port)
                                                 .protocol("tcp")
                                                 .build()
                                 ))
-                                .logConfiguration(createLogConfiguration("sebas-cdk-messenger-service"))
+                                .logConfiguration(createLogConfiguration("sebas-cdk-messenger-service-" + mode))
                                 .build()
                 ))
                 .requiresCompatibilities(List.of("FARGATE"))
@@ -75,9 +83,9 @@ public class AwsEcsService {
                 .build();
     }
 
-    private CfnRole createTaskRole() {
+    private CfnRole createTaskRole(String mode) {
         return CfnRole.Builder
-                .create(scope, prefix + "ckd-task-role")
+                .create(scope, "%stask-role-for-%s-service".formatted(prefix, mode))
                 .managedPolicyArns(List.of(
                         "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
                         "arn:aws:iam::aws:policy/AmazonSNSFullAccess",
@@ -117,19 +125,19 @@ public class AwsEcsService {
 
     }
 
-    public CfnService createService(String cluster, String targetGroup, String securityGroup, List<String> subnets) {
-        var taskDefinition = createTaskDefinition();
+    public CfnService createService(String cluster, String targetGroup, String securityGroup, List<String> subnets, String mode, int port) {
+        var taskDefinition = createMessengerService(mode, port);
         return CfnService.Builder
-                .create(scope, prefix + "messenger-service")
+                .create(scope, "%smessenger-%s-service".formatted(prefix, mode))
                 .taskDefinition(taskDefinition.getAttrTaskDefinitionArn())
                 .loadBalancers(List.of(
                         CfnService.LoadBalancerProperty.builder()
                                 .containerName(CONTAINER_NAME)
-                                .containerPort(80)
+                                .containerPort(port)
                                 .targetGroupArn(targetGroup)
                                 .build())
                 )
-                .serviceName("cool-messenger-service")
+                .serviceName("cool-messenger-service-%smode".formatted(mode))
                 .networkConfiguration(CfnService.NetworkConfigurationProperty.builder()
                         .awsvpcConfiguration(CfnService.AwsVpcConfigurationProperty.builder()
                                 .securityGroups(List.of(securityGroup))
@@ -145,10 +153,10 @@ public class AwsEcsService {
                 .build();
     }
 
-    public CfnListener createListener(String loadBalancer, String targetGroup) {
+    public CfnListener createListener(String loadBalancer, String targetGroup, String mode, int port) {
         return CfnListener.Builder
-                .create(scope, prefix + "HTTP-listener")
-                .port(80)
+                .create(scope, prefix + "HTTP-listener-" + mode)
+                .port(port)
                 .loadBalancerArn(loadBalancer)
                 .protocol("HTTP")
                 .defaultActions(List.of(
@@ -160,18 +168,21 @@ public class AwsEcsService {
                 .build();
     }
 
-    public CfnTargetGroup createTargetGroup(String vpc) {
+    public CfnTargetGroup createTargetGroup(String vpc, String mode, int port) {
         return CfnTargetGroup.Builder
-                .create(scope, prefix + "target-group")
-                .name("doelwit")
+                .create(scope, prefix + "target-group-" + mode)
+                .name(mode + "-doelwit")
                 .targetType("ip")
                 .ipAddressType("ipv4")
-                .port(80)
+                .port(port)
                 .protocol("HTTP")
                 .vpcId(vpc)
                 .healthCheckEnabled(true)
                 .healthCheckProtocol("HTTP")
-                .healthCheckPath("/api/v1/messenger/healthcheck")
+                .healthCheckPath("/%s/api/v1/messenger/healthcheck".formatted(mode))
+                .healthCheckIntervalSeconds(60)
+                .unhealthyThresholdCount(5)
+                .healthyThresholdCount(2)
                 .build();
     }
 }

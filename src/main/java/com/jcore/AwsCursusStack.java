@@ -68,11 +68,19 @@ public class AwsCursusStack extends Stack {
 
         var cluster = ecsService.createCluster();
 
-        var targetGroup = ecsService.createTargetGroup(vpc.getAttrVpcId());
-        var listener = ecsService.createListener(balancer.getAttrLoadBalancerArn(), targetGroup.getAttrTargetGroupArn());
-        listener.addDependency(targetGroup);
-        var messengerService = ecsService.createService(cluster.getAttrArn(), targetGroup.getAttrTargetGroupArn(), securityGroup.getAttrId(), privateSubnets);
-        messengerService.addDependency(listener);
+        //Messenger SEND
+        var targetGroupSend = ecsService.createTargetGroup(vpc.getAttrVpcId(), "send", 80);
+        var listenerSend = ecsService.createListener(balancer.getAttrLoadBalancerArn(), targetGroupSend.getAttrTargetGroupArn(), "send", 80);
+        listenerSend.addDependency(targetGroupSend);
+        var messengerServiceSend = ecsService.createService(cluster.getAttrArn(), targetGroupSend.getAttrTargetGroupArn(), securityGroup.getAttrId(), privateSubnets, "send", 80);
+        messengerServiceSend.addDependency(listenerSend);
+
+        //Messenger RECEIVE
+        var targetGroupReceive = ecsService.createTargetGroup(vpc.getAttrVpcId(), "receive", 81);
+        var listenerReceive = ecsService.createListener(balancer.getAttrLoadBalancerArn(), targetGroupReceive.getAttrTargetGroupArn(), "receive", 81);
+        listenerReceive.addDependency(targetGroupReceive);
+        var messengerServiceReceive = ecsService.createService(cluster.getAttrArn(), targetGroupReceive.getAttrTargetGroupArn(), securityGroup.getAttrId(), privateSubnets, "receive", 81);
+        messengerServiceReceive.addDependency(listenerReceive);
     }
 
     private CfnVPC createVpc(final String cidrBlock) {

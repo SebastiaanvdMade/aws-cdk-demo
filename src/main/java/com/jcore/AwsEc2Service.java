@@ -33,7 +33,6 @@ public class AwsEc2Service {
                 .managedPolicyArns(List.of("arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess"))
                 .build();
 
-        //TODO deze instance profile blijft hangen :(
         return CfnInstanceProfile.Builder
                 .create(scope, prefix + "nginx-instance-profile")
                 .roles(List.of(role.getRef()))
