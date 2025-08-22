@@ -8,7 +8,6 @@ import software.amazon.awscdk.services.ec2.CfnSecurityGroupIngress;
 import software.amazon.awscdk.services.elasticloadbalancingv2.CfnLoadBalancer;
 import software.amazon.awscdk.services.iam.CfnInstanceProfile;
 import software.amazon.awscdk.services.iam.CfnRole;
-import software.amazon.awscdk.services.ssm.StringParameter;
 import software.constructs.Construct;
 
 import java.util.Base64;
@@ -55,21 +54,18 @@ public class AwsEc2Service {
         return assumeRolePolicy;
     }
 
-    public CfnLoadBalancer createLoadBalancer(String vpcId, List<String> subnets, String securityGroup) {
-        var result = CfnLoadBalancer.Builder.create(scope, prefix + "balancer")
-                .name("balanceer-monsieur")
-                .type("application")
+    public CfnLoadBalancer createLoadBalancer(List<String> subnets, String securityGroup, boolean isALB) {
+        var name = isALB ? "monsieur" : "madame";
+        var type = isALB ? "application" : "network";
+        var scheme = isALB ? "internal" : "internet-facing";
+
+        return CfnLoadBalancer.Builder.create(scope, prefix + type + "-balancer")
+                .name("balanceer-" + name)
+                .type(type)
                 .subnets(subnets)
                 .securityGroups(List.of(securityGroup))
-                .scheme("internal")
+                .scheme(scheme)
                 .build();
-
-        var parameter = StringParameter.Builder.create(scope, "AlbDnsParameter")
-                .parameterName("/sebas/alb-dns")
-                .stringValue(result.getAttrDnsName())
-                .build();
-
-        return result;
     }
 
     public CfnSecurityGroup createSecurityGroup(String vpcId, String description) {

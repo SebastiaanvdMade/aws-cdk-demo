@@ -172,7 +172,7 @@ public class AwsEcsService {
                 .build();
     }
 
-    public CfnListener createListener(String loadBalancer, int port) {
+    public CfnListener createALBListener(String loadBalancer, int port) {
         return CfnListener.Builder
                 .create(scope, prefix + "HTTP-listener")
                 .port(port)
@@ -188,6 +188,20 @@ public class AwsEcsService {
                                         <p>(probeer eens /send of /receive)</p>
                                         """)
                                 .build())
+                        .build()
+                ))
+                .build();
+    }
+
+    public CfnListener createNLBListener(String loadBalancer, String targetGroup, int port) {
+        return CfnListener.Builder
+                .create(scope, prefix + "TCP-listener")
+                .port(port)
+                .loadBalancerArn(loadBalancer)
+                .protocol("TCP")
+                .defaultActions(List.of(CfnListener.ActionProperty.builder()
+                        .type("forward")
+                        .targetGroupArn(targetGroup)
                         .build()
                 ))
                 .build();
@@ -236,14 +250,17 @@ public class AwsEcsService {
                 ).build();
     }
 
-    public CfnTargetGroup createTargetGroup(String vpc, String mode, int port) {
+    public CfnTargetGroup createTargetGroup(String vpc, String mode, int port, List<String> loadBalancers) {
+        var targetType = loadBalancers.isEmpty() ? "ip" : "alb";
+        var name = loadBalancers.isEmpty() ? mode : "to-balancer";
+        var protocol = loadBalancers.isEmpty() ? "HTTP" : "TCP";
         return CfnTargetGroup.Builder
-                .create(scope, prefix + "target-group-" + mode)
-                .name(mode + "-doelwit")
-                .targetType("ip")
+                .create(scope, prefix + "target-group-" + name)
+                .name(name + "-doelwit")
+                .targetType(targetType)
                 .ipAddressType("ipv4")
                 .port(port)
-                .protocol("HTTP")
+                .protocol(protocol)
                 .vpcId(vpc)
                 .healthCheckEnabled(true)
                 .healthCheckProtocol("HTTP")
@@ -251,6 +268,11 @@ public class AwsEcsService {
                 .healthCheckIntervalSeconds(60)
                 .unhealthyThresholdCount(5)
                 .healthyThresholdCount(2)
+                .targets(loadBalancers.stream().map(balancerRef ->
+                        CfnTargetGroup.TargetDescriptionProperty.builder()
+                                .id(balancerRef)
+                                .port(port)
+                                .build()).toList())
                 .build();
     }
 }

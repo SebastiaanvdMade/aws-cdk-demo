@@ -18,6 +18,7 @@ import software.amazon.awscdk.services.ec2.ISubnet;
 import software.amazon.awscdk.services.ec2.Subnet;
 import software.constructs.Construct;
 
+import java.util.Collections;
 import java.util.List;
 
 public class AwsCursusStack extends Stack {
@@ -49,6 +50,7 @@ public class AwsCursusStack extends Stack {
 
         var vpc = createVpc("10.0.0.0/16");
         var publicSubnetOne = createSubnet("10.0.111.0/24", vpc.getAttrVpcId(), true, "uno", "a");
+        var publicSubnetTwo = createSubnet("10.0.112.0/24", vpc.getAttrVpcId(), true, "dos", "b");
         var privateSubnetOne = createSubnet("10.0.221.0/24", vpc.getAttrVpcId(), false, "uno", "a");
         var privateSubnetTwo = createSubnet("10.0.222.0/24", vpc.getAttrVpcId(), false, "dos", "b");
         var privateSubnets = List.of(privateSubnetOne.getSubnetId(), privateSubnetTwo.getSubnetId());
@@ -56,7 +58,9 @@ public class AwsCursusStack extends Stack {
         var gateway = createInternetGatewayAndAttachToVpc(vpc.getAttrVpcId());
         var natGateway = createNatGatewayAndAttachToSubnet(publicSubnetOne.getSubnetId());
         var rt1 = createRouteTable(vpc, publicSubnetOne, true, "A");
+        var rt2 = createRouteTable(vpc, publicSubnetTwo, true, "B");
         var publicRouteA = createRoute(rt1.getAttrRouteTableId(), gateway.getAttrInternetGatewayId(), true, "A");
+        var publicRouteB = createRoute(rt2.getAttrRouteTableId(), gateway.getAttrInternetGatewayId(), true, "B");
         var rtA = createRouteTable(vpc, privateSubnetOne, false, "A");
         var rtB = createRouteTable(vpc, privateSubnetTwo, false, "B");
         var privateRouteA = createRoute(rtA.getAttrRouteTableId(), natGateway.getAttrNatGatewayId(), false, "A");
@@ -65,23 +69,30 @@ public class AwsCursusStack extends Stack {
         //var iamRole = ec2Service.getCnfRole();
         var securityGroup = ec2Service.createSecurityGroup(vpc.getAttrVpcId(), "default");
         var securityGroupBalancer = ec2Service.createSecurityGroup(vpc.getAttrVpcId(), "balancer");
-        var balancer = ec2Service.createLoadBalancer(vpc.getAttrVpcId(),
-                List.of(privateSubnetOne.getSubnetId(), privateSubnetTwo.getSubnetId()),
-                securityGroupBalancer.getAttrGroupId());
+        var applicationBalancer = ec2Service.createLoadBalancer(List.of(privateSubnetOne.getSubnetId(), privateSubnetTwo.getSubnetId()),
+                securityGroupBalancer.getAttrGroupId(),
+                true);
 
-        var nginxInstance = ec2Service.createNginxInstance(publicSubnetOne.getSubnetId(), "NGINX", securityGroup.getAttrGroupId());
+        //var nginxInstance = ec2Service.createNginxInstance(publicSubnetOne.getSubnetId(), "NGINX", securityGroup.getAttrGroupId());
 
         var cluster = ecsService.createCluster();
 
-        var targetGroupSend = ecsService.createTargetGroup(vpc.getAttrVpcId(), "send", 80);
-        var targetGroupReceive = ecsService.createTargetGroup(vpc.getAttrVpcId(), "receive", 80);
+        var targetGroupSend = ecsService.createTargetGroup(vpc.getAttrVpcId(), "send", 80, Collections.emptyList());
+        var targetGroupReceive = ecsService.createTargetGroup(vpc.getAttrVpcId(), "receive", 80, Collections.emptyList());
 
-        var listener = ecsService.createListener(balancer.getAttrLoadBalancerArn(), 80);
+        var listener = ecsService.createALBListener(applicationBalancer.getAttrLoadBalancerArn(), 80);
         listener.addDependency(targetGroupSend);
         listener.addDependency(targetGroupReceive);
         var listenerRuleSend = ecsService.createListenerRule(listener.getAttrListenerArn(), targetGroupSend.getAttrTargetGroupArn(), "send", 1);
         var listenerRuleReceive = ecsService.createListenerRule(listener.getAttrListenerArn(), targetGroupReceive.getAttrTargetGroupArn(), "receive", 2);
         var listenerRuleWaiting = ecsService.createLoading(listener.getAttrListenerArn(), 50);
+
+        var networkLoadBalancer = ec2Service.createLoadBalancer(List.of(publicSubnetOne.getSubnetId(), publicSubnetTwo.getSubnetId()),
+                securityGroupBalancer.getAttrGroupId(),
+                false);
+        var nlbTargetGroup = ecsService.createTargetGroup(vpc.getAttrVpcId(), "send", 80, List.of(applicationBalancer.getRef()));
+        var nlbListener = ecsService.createNLBListener(networkLoadBalancer.getAttrLoadBalancerArn(), nlbTargetGroup.getAttrTargetGroupArn(), 80);
+        nlbListener.addDependency(nlbTargetGroup);
 
         //Messenger SEND
         var messengerServiceSend = ecsService.createService(
@@ -89,8 +100,8 @@ public class AwsCursusStack extends Stack {
                 targetGroupSend.getAttrTargetGroupArn(),
                 securityGroup.getAttrId(), privateSubnets,
                 "send", 80,
-                topic.getTopicName(),
-                queue.getAttrArn());
+                topic.getAttrTopicArn(),
+                queue.getQueueName());
         messengerServiceSend.addDependency(listener);
 
         //Messenger RECEIVE
@@ -101,7 +112,7 @@ public class AwsCursusStack extends Stack {
                 privateSubnets,
                 "receive", 80,
                 topic.getTopicName(),
-                queue.getAttrArn());
+                queue.getAttrQueueUrl());
         messengerServiceReceive.addDependency(listener);
     }
 
