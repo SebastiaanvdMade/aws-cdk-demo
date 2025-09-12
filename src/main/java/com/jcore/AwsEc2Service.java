@@ -69,22 +69,23 @@ public class AwsEc2Service {
     }
 
     public CfnSecurityGroup createSecurityGroup(String vpcId, String description) {
-        var securityGroup = CfnSecurityGroup.Builder.create(scope, String.format("%s-%s-%s", prefix, description, "sg"))
+        var securityGroup = CfnSecurityGroup.Builder.create(scope, String.format("%s-%s-sg", prefix, description))
                 .groupDescription(description)
                 .vpcId(vpcId)
                 .build();
-        makeInboundRule(securityGroup.getAttrId(), "0.0.0.0/0", 80, description + "-http80");
-        makeInboundRule(securityGroup.getAttrId(), "0.0.0.0/0", 8080, description + "-http8080");
-        makeInboundRule(securityGroup.getAttrId(), "0.0.0.0/0", 22, description + "-ssh");
+        makeInboundRule(securityGroup.getAttrId(), 80, description + "-http80");
+        makeInboundRule(securityGroup.getAttrId(), 8080, description + "-http8080");
+        makeInboundRule(securityGroup.getAttrId(), 22, description + "-ssh");
+        makeInboundRule(securityGroup.getAttrId(), 27017, description + "-database");
         makeOutboundRule(securityGroup.getAttrId(), description);
 
         return securityGroup;
     }
 
-    private CfnSecurityGroupIngress makeInboundRule(String sgId, String cidrIp, Number port, String description) {
+    public CfnSecurityGroupIngress makeInboundRule(String sgId, Number port, String description) {
         return CfnSecurityGroupIngress.Builder.create(scope, prefix + description + "-rule")
                 .description(description)
-                .cidrIp(cidrIp)
+                .cidrIp("0.0.0.0/0")
                 .ipProtocol("TCP")
                 .fromPort(port)
                 .toPort(port)

@@ -1,5 +1,6 @@
 package com.jcore;
 
+import com.jcore.model.ServiceSettings;
 import software.amazon.awscdk.services.ecs.CfnCluster;
 import software.amazon.awscdk.services.ecs.CfnService;
 import software.amazon.awscdk.services.ecs.CfnTaskDefinition;
@@ -9,6 +10,7 @@ import software.amazon.awscdk.services.elasticloadbalancingv2.CfnTargetGroup;
 import software.amazon.awscdk.services.iam.CfnRole;
 import software.constructs.Construct;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -31,12 +33,24 @@ public class AwsEcsService {
                 .build();
     }
 
-    public CfnTaskDefinition createMessengerService(String mode, int port, String snsTopic, String sqsQueue) {
+    public CfnTaskDefinition createMessengerService(ServiceSettings settings) {
 
-        var taskRole = createTaskRole(mode);
+        var taskRole = createTaskRole(settings.getMode());
+        var databaseUrl = "mongodb://sebastiaans-data-cluster.cluster-c9m0iieu4z0r.eu-central-1.docdb.amazonaws.com:27017";
+
+        Map<String, String> envVars = new HashMap<>();
+        envVars.put("SPRING_PROFILES_INCLUDE", "aws,%s".formatted(settings.getMode()));
+        envVars.put("SPRING_DATA_MONGODB_URI", databaseUrl);
+        envVars.put("SERVER_PORT", String.valueOf(settings.getPort()));
+        envVars.put("SERVER_SERVLET_CONTEXT-PATH", "/%s".formatted(settings.getMode()));
+        envVars.put("AWS_SNSTOPIC", settings.getSnsTopic());
+        envVars.put("AWS_SQSQUEUE", settings.getSqsQueue());
+        envVars.put("SPRING_DATASOURCE_URL", databaseUrl);
+        envVars.put("SPRING_DATASOURCE_USERNAME", "sebastiaan");
+        envVars.put("SPRING_DATASOURCE_PASSWORD", "sebastiaan");
 
         return CfnTaskDefinition.Builder
-                .create(scope, "%smessenger-%s-service-taskdef".formatted(prefix, mode))
+                .create(scope, "%smessenger-%s-service-taskdef".formatted(prefix, settings.getMode()))
                 .runtimePlatform(
                         CfnTaskDefinition.RuntimePlatformProperty.builder()
                                 .cpuArchitecture("X86_64")
@@ -50,37 +64,16 @@ public class AwsEcsService {
                                 .cpu(256)
                                 .memory(1024)
                                 .essential(true)
-                                .environment(List.of(
-                                        CfnTaskDefinition.KeyValuePairProperty.builder()
-                                                .name("SPRING_PROFILES_INCLUDE")
-                                                .value("nodb,%s".formatted(mode))
-                                                .build(),
-                                        CfnTaskDefinition.KeyValuePairProperty.builder()
-                                                .name("SERVER_PORT")
-                                                .value(String.valueOf(port))
-                                                .build(),
-                                        CfnTaskDefinition.KeyValuePairProperty.builder()
-                                                .name("SERVER_SERVLET_CONTEXT-PATH")
-                                                .value("/" + mode)
-                                                .build(),
-                                        CfnTaskDefinition.KeyValuePairProperty.builder()
-                                                .name("AWS_SNSTOPIC")
-                                                .value(snsTopic)
-                                                .build(),
-                                        CfnTaskDefinition.KeyValuePairProperty.builder()
-                                                .name("AWS_SQSQUEUE")
-                                                .value(sqsQueue)
-                                                .build()
-                                ))
+                                .environment(createEnvironmentVariables(envVars))
                                 .portMappings(List.of(
                                         CfnTaskDefinition.PortMappingProperty.builder()
-                                                .hostPort(port)
-                                                .name(String.valueOf(port))
-                                                .containerPort(port)
+                                                .hostPort(settings.getPort())
+                                                .name(String.valueOf(settings.getPort()))
+                                                .containerPort(settings.getPort())
                                                 .protocol("tcp")
                                                 .build()
                                 ))
-                                .logConfiguration(createLogConfiguration("sebas-cdk-messenger-service-" + mode))
+                                .logConfiguration(createLogConfiguration("sebas-cdk-messenger-service-" + settings.getMode()))
                                 .build()
                 ))
                 .requiresCompatibilities(List.of("FARGATE"))
@@ -90,6 +83,17 @@ public class AwsEcsService {
                 .taskRoleArn(taskRole.getAttrArn())
                 .executionRoleArn(taskRole.getAttrArn())
                 .build();
+    }
+
+    private List<CfnTaskDefinition.KeyValuePairProperty> createEnvironmentVariables(Map<String, String> envVars) {
+        return envVars.entrySet().stream()
+                .map(entry -> {
+                            return CfnTaskDefinition.KeyValuePairProperty.builder()
+                                    .name(entry.getKey())
+                                    .value(entry.getValue())
+                                    .build();
+                        }
+                ).toList();
     }
 
     private CfnRole createTaskRole(String mode) {
@@ -134,39 +138,30 @@ public class AwsEcsService {
 
     }
 
-    public CfnService createService(
-            String cluster,
-            String targetGroup,
-            String securityGroup,
-            List<String> subnets,
-            String mode,
-            int port,
-            String snsTopic,
-            String sqsQueue
-    ) {
+    public CfnService createService(ServiceSettings settings) {
 
-        var taskDefinition = createMessengerService(mode, port, snsTopic, sqsQueue);
+        var taskDefinition = createMessengerService(settings);
         return CfnService.Builder
-                .create(scope, "%smessenger-%s-servies".formatted(prefix, mode))
+                .create(scope, "%smessenger-%s-servies".formatted(prefix, settings.getMode()))
                 .taskDefinition(taskDefinition.getAttrTaskDefinitionArn())
                 .loadBalancers(List.of(
                         CfnService.LoadBalancerProperty.builder()
                                 .containerName(CONTAINER_NAME)
-                                .containerPort(port)
-                                .targetGroupArn(targetGroup)
+                                .containerPort(settings.getPort())
+                                .targetGroupArn(settings.getTargetGroup())
                                 .build())
                 )
-                .serviceName("cool-messenger-service-%smode".formatted(mode))
+                .serviceName("cool-messenger-service-%smode".formatted(settings.getMode()))
                 .networkConfiguration(CfnService.NetworkConfigurationProperty.builder()
                         .awsvpcConfiguration(CfnService.AwsVpcConfigurationProperty.builder()
-                                .securityGroups(List.of(securityGroup))
-                                .subnets(subnets)
+                                .securityGroups(List.of(settings.getSecurityGroup()))
+                                .subnets(settings.getSubnets())
                                 .assignPublicIp("DISABLED")
                                 .build())
                         .build()
                 )
                 .desiredCount(1)
-                .cluster(cluster)
+                .cluster(settings.getCluster())
                 .launchType("FARGATE")
                 .platformVersion("LATEST")
                 .build();

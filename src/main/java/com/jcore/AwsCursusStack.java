@@ -1,5 +1,6 @@
 package com.jcore;
 
+import com.jcore.model.ServiceSettings;
 import software.amazon.awscdk.CfnOutput;
 import software.amazon.awscdk.CfnTag;
 import software.amazon.awscdk.Stack;
@@ -28,6 +29,7 @@ public class AwsCursusStack extends Stack {
     private final AwsEc2Service ec2Service = new AwsEc2Service(this, PREFIX);
     private final AwsEcsService ecsService = new AwsEcsService(this, PREFIX);
     private final AwsQueueService queueService = new AwsQueueService(this, PREFIX);
+    private final AwsDatabaseService databaseService = new AwsDatabaseService(this, PREFIX);
 
     public AwsCursusStack(final Construct scope, final String id) {
         this(scope, id, null);
@@ -74,6 +76,7 @@ public class AwsCursusStack extends Stack {
                 true);
 
         //var nginxInstance = ec2Service.createNginxInstance(publicSubnetOne.getSubnetId(), "NGINX", securityGroup.getAttrGroupId());
+        var database = databaseService.createDatabaseInstance(privateSubnets, securityGroup.getAttrId());
 
         var cluster = ecsService.createCluster();
 
@@ -94,25 +97,25 @@ public class AwsCursusStack extends Stack {
         var nlbListener = ecsService.createNLBListener(networkLoadBalancer.getAttrLoadBalancerArn(), nlbTargetGroup.getAttrTargetGroupArn(), 80);
         nlbListener.addDependency(nlbTargetGroup);
 
+        var serviceSettings = ServiceSettings.builder()
+                .cluster(cluster.getAttrArn())
+                .securityGroup(securityGroup.getAttrId())
+                .subnets(privateSubnets)
+                .port(80)
+                .snsTopic(topic.getAttrTopicArn())
+                .sqsQueue(queue.getQueueName())
+                .databaseUrl(database.getAttrEndpoint());
+
         //Messenger SEND
-        var messengerServiceSend = ecsService.createService(
-                cluster.getAttrArn(),
-                targetGroupSend.getAttrTargetGroupArn(),
-                securityGroup.getAttrId(), privateSubnets,
-                "send", 80,
-                topic.getAttrTopicArn(),
-                queue.getQueueName());
+        serviceSettings.targetGroup(targetGroupSend.getAttrTargetGroupArn());
+        serviceSettings.mode("send");
+        var messengerServiceSend = ecsService.createService(serviceSettings.build());
         messengerServiceSend.addDependency(listener);
 
         //Messenger RECEIVE
-        var messengerServiceReceive = ecsService.createService(
-                cluster.getAttrArn(),
-                targetGroupReceive.getAttrTargetGroupArn(),
-                securityGroup.getAttrId(),
-                privateSubnets,
-                "receive", 80,
-                topic.getTopicName(),
-                queue.getAttrQueueUrl());
+        serviceSettings.targetGroup(targetGroupReceive.getAttrTargetGroupArn());
+        serviceSettings.mode("receive");
+        var messengerServiceReceive = ecsService.createService(serviceSettings.build());
         messengerServiceReceive.addDependency(listener);
     }
 
@@ -168,7 +171,6 @@ public class AwsCursusStack extends Stack {
                         vpcId(vpc.getAttrVpcId()).
                         tags(List.of(CfnTag.builder().key("Name").value(label + "-route-table-" + name).build())).
                         build();
-        System.out.println("Created RouteTable: " + routeTable.getAttrRouteTableId());
 
         CfnOutput.Builder.create(this, PREFIX + label + "-" + name + "RouteTableCreated").
                 value("RouteTableId: " + routeTable.getAttrRouteTableId()).
