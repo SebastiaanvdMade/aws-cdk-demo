@@ -25,6 +25,7 @@ import java.util.List;
 public class AwsCursusStack extends Stack {
 
     private static final String PREFIX = "sebastiaans-";
+    private static final String USER = "sebastiaan";
 
     private final AwsEc2Service ec2Service = new AwsEc2Service(this, PREFIX);
     private final AwsEcsService ecsService = new AwsEcsService(this, PREFIX);
@@ -76,7 +77,9 @@ public class AwsCursusStack extends Stack {
                 true);
 
         //var nginxInstance = ec2Service.createNginxInstance(publicSubnetOne.getSubnetId(), "NGINX", securityGroup.getAttrGroupId());
-        var database = databaseService.createDatabaseInstance(privateSubnets, securityGroup.getAttrId());
+        var passwordSecret = databaseService.createDatabasePassword(USER);
+        var database = databaseService.createDatabaseInstance(privateSubnets, securityGroup.getAttrId(), USER, passwordSecret);
+        var connectionString = databaseService.createConnectionStringSecret(database);
 
         var cluster = ecsService.createCluster();
 
@@ -104,7 +107,10 @@ public class AwsCursusStack extends Stack {
                 .port(80)
                 .snsTopic(topic.getAttrTopicArn())
                 .sqsQueue(queue.getQueueName())
-                .databaseUrl(database.getAttrEndpoint());
+                .databaseUrl(database.getAttrEndpoint())
+                .connectionString(connectionString)
+                .username(USER)
+                .password(passwordSecret);
 
         //Messenger SEND
         serviceSettings.targetGroup(targetGroupSend.getAttrTargetGroupArn());

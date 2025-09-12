@@ -4,6 +4,7 @@ import software.amazon.awscdk.services.docdb.CfnDBCluster;
 import software.amazon.awscdk.services.docdb.CfnDBClusterParameterGroup;
 import software.amazon.awscdk.services.docdb.CfnDBInstance;
 import software.amazon.awscdk.services.docdb.CfnDBSubnetGroup;
+import software.amazon.awscdk.services.secretsmanager.CfnSecret;
 import software.constructs.Construct;
 
 import java.util.List;
@@ -19,7 +20,7 @@ public class AwsDatabaseService {
         this.prefix = prefix;
     }
 
-    public CfnDBCluster createDatabaseInstance(List<String> subnets, String securityGroup) {
+    public CfnDBCluster createDatabaseInstance(List<String> subnets, String securityGroup, String username, CfnSecret password) {
         // 1. Create Cluster Parameter Group
         CfnDBClusterParameterGroup parameterGroup = CfnDBClusterParameterGroup.Builder.create(scope, prefix + "ParameterGroup")
                 .description("Parameter group for DocumentDB cluster")
@@ -39,8 +40,8 @@ public class AwsDatabaseService {
         // 2. Create DocumentDB Cluster
         CfnDBCluster cluster = CfnDBCluster.Builder.create(scope, prefix + "database-cluster")
                 .dbClusterIdentifier(prefix + "data-cluster")
-                .masterUsername("sebastiaan")
-                .masterUserPassword("sebastiaan")
+                .masterUsername(username)
+                .masterUserPassword(password.getSecretString())
                 .vpcSecurityGroupIds(List.of(securityGroup))
                 .dbClusterParameterGroupName(parameterGroup.getRef())
                 .dbSubnetGroupName(subnetGroup.getDbSubnetGroupName())
@@ -56,6 +57,30 @@ public class AwsDatabaseService {
                 .build();
 
         return cluster;
+    }
+
+    public CfnSecret createDatabasePassword(String username) {
+        return CfnSecret.Builder.create(scope, prefix + "doc-db-secret-password")
+                .name(prefix + "database-wachtwoord")
+                .generateSecretString(CfnSecret.GenerateSecretStringProperty.builder()
+                        .secretStringTemplate("{\"username\":\"%s\"}".formatted(username))
+                        .generateStringKey("password")
+                        .excludeCharacters("\"@/\\ '")
+                        .passwordLength(16)
+                        .build())
+                .build();
+    }
+
+    public CfnSecret createConnectionStringSecret(CfnDBCluster cluster) {
+        String connectionString = "mongodb://%s:%s/?ssl=true&replicaSet=rs0".formatted(
+                cluster.getAttrEndpoint(),
+                cluster.getAttrPort()
+        );
+
+        return CfnSecret.Builder.create(scope, prefix + "secret-connection-string")
+                .name(prefix + "database-connection-string")
+                .secretString(connectionString)
+                .build();
     }
 
 }

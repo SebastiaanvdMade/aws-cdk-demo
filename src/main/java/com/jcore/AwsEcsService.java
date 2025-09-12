@@ -8,6 +8,7 @@ import software.amazon.awscdk.services.elasticloadbalancingv2.CfnListener;
 import software.amazon.awscdk.services.elasticloadbalancingv2.CfnListenerRule;
 import software.amazon.awscdk.services.elasticloadbalancingv2.CfnTargetGroup;
 import software.amazon.awscdk.services.iam.CfnRole;
+import software.amazon.awscdk.services.secretsmanager.CfnSecret;
 import software.constructs.Construct;
 
 import java.util.HashMap;
@@ -36,18 +37,18 @@ public class AwsEcsService {
     public CfnTaskDefinition createMessengerService(ServiceSettings settings) {
 
         var taskRole = createTaskRole(settings.getMode());
-        var databaseUrl = "mongodb://sebastiaans-data-cluster.cluster-c9m0iieu4z0r.eu-central-1.docdb.amazonaws.com:27017";
 
         Map<String, String> envVars = new HashMap<>();
         envVars.put("SPRING_PROFILES_INCLUDE", "aws,%s".formatted(settings.getMode()));
-        envVars.put("SPRING_DATA_MONGODB_URI", databaseUrl);
         envVars.put("SERVER_PORT", String.valueOf(settings.getPort()));
         envVars.put("SERVER_SERVLET_CONTEXT-PATH", "/%s".formatted(settings.getMode()));
         envVars.put("AWS_SNSTOPIC", settings.getSnsTopic());
         envVars.put("AWS_SQSQUEUE", settings.getSqsQueue());
-        envVars.put("SPRING_DATASOURCE_URL", databaseUrl);
-        envVars.put("SPRING_DATASOURCE_USERNAME", "sebastiaan");
-        envVars.put("SPRING_DATASOURCE_PASSWORD", "sebastiaan");
+        envVars.put("SPRING_DATA_MONGODB_USERNAME", settings.getUsername());
+
+        Map<String, CfnSecret> secrets = new HashMap<>();
+        secrets.put("SPRING_DATA_MONGODB_URI", settings.getConnectionString());
+        secrets.put("SPRING_DATA_MONGODB_PASSWORD", settings.getPassword());
 
         return CfnTaskDefinition.Builder
                 .create(scope, "%smessenger-%s-service-taskdef".formatted(prefix, settings.getMode()))
@@ -65,6 +66,7 @@ public class AwsEcsService {
                                 .memory(1024)
                                 .essential(true)
                                 .environment(createEnvironmentVariables(envVars))
+                                .secrets(createSecretProperties(secrets))
                                 .portMappings(List.of(
                                         CfnTaskDefinition.PortMappingProperty.builder()
                                                 .hostPort(settings.getPort())
@@ -87,12 +89,21 @@ public class AwsEcsService {
 
     private List<CfnTaskDefinition.KeyValuePairProperty> createEnvironmentVariables(Map<String, String> envVars) {
         return envVars.entrySet().stream()
-                .map(entry -> {
-                            return CfnTaskDefinition.KeyValuePairProperty.builder()
-                                    .name(entry.getKey())
-                                    .value(entry.getValue())
-                                    .build();
-                        }
+                .map(entry ->
+                        CfnTaskDefinition.KeyValuePairProperty.builder()
+                                .name(entry.getKey())
+                                .value(entry.getValue())
+                                .build()
+                ).toList();
+    }
+
+    private List<CfnTaskDefinition.SecretProperty> createSecretProperties(Map<String, CfnSecret> secrets) {
+        return secrets.entrySet().stream()
+                .map(entry ->
+                        CfnTaskDefinition.SecretProperty.builder()
+                                .name(entry.getKey())
+                                .valueFrom(entry.getValue().getRef())
+                                .build()
                 ).toList();
     }
 
@@ -104,7 +115,8 @@ public class AwsEcsService {
                         "arn:aws:iam::aws:policy/AmazonSNSFullAccess",
                         "arn:aws:iam::aws:policy/AmazonSQSFullAccess",
                         "arn:aws:iam::aws:policy/AmazonSQSReadOnlyAccess",
-                        "arn:aws:iam::aws:policy/service-role/AWSIoTLogging"
+                        "arn:aws:iam::aws:policy/service-role/AWSIoTLogging",
+                        "arn:aws:iam::aws:policy/SecretsManagerReadWrite"
                 ))
                 .assumeRolePolicyDocument(
                         Map.of(

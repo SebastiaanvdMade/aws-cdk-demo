@@ -2,6 +2,7 @@ package com.jcore.model;
 
 import lombok.Builder;
 import lombok.Data;
+import software.amazon.awscdk.services.secretsmanager.CfnSecret;
 
 import java.util.List;
 
@@ -17,4 +18,7 @@ public class ServiceSettings {
     String snsTopic;
     String sqsQueue;
     String databaseUrl;
+    CfnSecret connectionString;
+    String username;
+    CfnSecret password;
 }
