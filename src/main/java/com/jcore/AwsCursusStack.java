@@ -79,7 +79,8 @@ public class AwsCursusStack extends Stack {
         //var nginxInstance = ec2Service.createNginxInstance(publicSubnetOne.getSubnetId(), "NGINX", securityGroup.getAttrGroupId());
         var passwordSecret = databaseService.createDatabasePassword(USER);
         var database = databaseService.createDatabaseInstance(privateSubnets, securityGroup.getAttrId(), USER, passwordSecret);
-        var connectionString = databaseService.createConnectionStringSecret(database);
+        database.addDependency(passwordSecret);
+        var connectionString = databaseService.createConnectionStringSecret(database, passwordSecret);
 
         var cluster = ecsService.createCluster();
 
@@ -98,7 +99,7 @@ public class AwsCursusStack extends Stack {
                 false);
         var nlbTargetGroup = ecsService.createTargetGroup(vpc.getAttrVpcId(), "send", 80, List.of(applicationBalancer.getRef()));
         var nlbListener = ecsService.createNLBListener(networkLoadBalancer.getAttrLoadBalancerArn(), nlbTargetGroup.getAttrTargetGroupArn(), 80);
-        nlbListener.addDependency(nlbTargetGroup);
+        //nlbListener.addDependency(nlbTargetGroup);
 
         var serviceSettings = ServiceSettings.builder()
                 .cluster(cluster.getAttrArn())

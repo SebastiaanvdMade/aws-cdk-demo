@@ -1,5 +1,6 @@
 package com.jcore;
 
+import software.amazon.awscdk.Fn;
 import software.amazon.awscdk.services.docdb.CfnDBCluster;
 import software.amazon.awscdk.services.docdb.CfnDBClusterParameterGroup;
 import software.amazon.awscdk.services.docdb.CfnDBInstance;
@@ -41,13 +42,17 @@ public class AwsDatabaseService {
         CfnDBCluster cluster = CfnDBCluster.Builder.create(scope, prefix + "database-cluster")
                 .dbClusterIdentifier(prefix + "data-cluster")
                 .masterUsername(username)
-                .masterUserPassword(password.getSecretString())
+                .masterUserPassword(
+                        Fn.sub("{{resolve:secretsmanager:${SecretArn}:SecretString:password}}",
+                                Map.of("SecretArn", password.getRef()))
+                )
                 .vpcSecurityGroupIds(List.of(securityGroup))
                 .dbClusterParameterGroupName(parameterGroup.getRef())
                 .dbSubnetGroupName(subnetGroup.getDbSubnetGroupName())
                 .storageEncrypted(true)
                 .backupRetentionPeriod(1)
                 .build();
+        cluster.addDependency(subnetGroup);
 
         // 3. Create DocumentDB Instance (1 node)
         CfnDBInstance instance = CfnDBInstance.Builder.create(scope, prefix + "database-instance")
@@ -71,15 +76,21 @@ public class AwsDatabaseService {
                 .build();
     }
 
-    public CfnSecret createConnectionStringSecret(CfnDBCluster cluster) {
-        String connectionString = "mongodb://%s:%s/?ssl=true&replicaSet=rs0".formatted(
-                cluster.getAttrEndpoint(),
-                cluster.getAttrPort()
-        );
+    public CfnSecret createConnectionStringSecret(CfnDBCluster cluster, CfnSecret password) {
+        String connectionString = "mongodb://" +
+                "{{resolve:secretsmanager:${SecretArn}:SecretString:username}}" +
+                ":{{resolve:secretsmanager:${SecretArn}:SecretString:password}}" +
+                "@${endpoint}:${port}" +
+                "/?replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false";
 
         return CfnSecret.Builder.create(scope, prefix + "secret-connection-string")
                 .name(prefix + "database-connection-string")
-                .secretString(connectionString)
+                .secretString(
+                        Fn.sub(connectionString,
+                                Map.of("SecretArn", password.getRef(),
+                                        "endpoint", cluster.getAttrEndpoint(),
+                                        "port", cluster.getAttrPort()
+                                )))
                 .build();
     }
 

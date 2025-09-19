@@ -44,11 +44,9 @@ public class AwsEcsService {
         envVars.put("SERVER_SERVLET_CONTEXT-PATH", "/%s".formatted(settings.getMode()));
         envVars.put("AWS_SNSTOPIC", settings.getSnsTopic());
         envVars.put("AWS_SQSQUEUE", settings.getSqsQueue());
-        envVars.put("SPRING_DATA_MONGODB_USERNAME", settings.getUsername());
 
         Map<String, CfnSecret> secrets = new HashMap<>();
         secrets.put("SPRING_DATA_MONGODB_URI", settings.getConnectionString());
-        secrets.put("SPRING_DATA_MONGODB_PASSWORD", settings.getPassword());
 
         return CfnTaskDefinition.Builder
                 .create(scope, "%smessenger-%s-service-taskdef".formatted(prefix, settings.getMode()))
