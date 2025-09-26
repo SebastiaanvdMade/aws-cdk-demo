@@ -80,7 +80,6 @@ public class AwsPipelineService {
                 .serviceRole(codeBuildRole.getAttrArn())
                 .build();
 
-        // 🔹 Step 4: Define CodePipeline (with Source + Build stages)
         var codePipelineRole = createCodePipelineRole();
         CfnPipeline pipeline = CfnPipeline.Builder.create(scope, prefix + "messenger-pipeline")
                 .roleArn(codePipelineRole.getAttrArn())
@@ -89,66 +88,97 @@ public class AwsPipelineService {
                         .location(artifactBucket.getBucketName())
                         .build())
                 .stages(List.of(
-                        // Stage 1: Source (GitHub example)
-                        CfnPipeline.StageDeclarationProperty.builder()
-                                .name("Source")
-                                .actions(List.of(
-                                        CfnPipeline.ActionDeclarationProperty.builder()
-                                                .name("GitHubSource")
-                                                .actionTypeId(CfnPipeline.ActionTypeIdProperty.builder()
-                                                        .category("Source")
-                                                        .owner("ThirdParty")
-                                                        .provider("GitHub")
-                                                        .version("1")
-                                                        .build())
-                                                .configuration(Map.of(
-                                                        "Owner", "{{resolve:secretsmanager:Github-access-Sebas:SecretString:Owner}}",
-                                                        "Repo", "{{resolve:secretsmanager:Github-access-Sebas:SecretString:Repo}}",
-                                                        "Branch", "{{resolve:secretsmanager:Github-access-Sebas:SecretString:Branch}}",
-                                                        "OAuthToken", "{{resolve:secretsmanager:Github-access-Sebas:SecretString:OAuthToken}}"
-                                                ))
-                                                .outputArtifacts(List.of(
-                                                        CfnPipeline.OutputArtifactProperty.builder()
-                                                                .name("SourceOutput")
-                                                                .build()
-                                                ))
-                                                .runOrder(1)
-                                                .build()
-                                ))
-                                .build(),
-
-                        // Stage 2: Build (CodeBuild project)
-                        CfnPipeline.StageDeclarationProperty.builder()
-                                .name("Build")
-                                .actions(List.of(
-                                        CfnPipeline.ActionDeclarationProperty.builder()
-                                                .name("DockerBuild")
-                                                .actionTypeId(CfnPipeline.ActionTypeIdProperty.builder()
-                                                        .category("Build")
-                                                        .owner("AWS")
-                                                        .provider("CodeBuild")
-                                                        .version("1")
-                                                        .build())
-                                                .inputArtifacts(List.of(
-                                                        CfnPipeline.InputArtifactProperty.builder()
-                                                                .name("SourceOutput")
-                                                                .build()
-                                                ))
-                                                .configuration(Map.of(
-                                                        "ProjectName", buildProject.getName()
-                                                ))
-                                                .outputArtifacts(List.of(
-                                                        CfnPipeline.OutputArtifactProperty.builder()
-                                                                .name("BuildOutput")
-                                                                .build()
-                                                ))
-                                                .runOrder(1)
-                                                .build()
-                                ))
-                                .build()
+                        createSourceStage(),
+                        createBuildStage(buildProject.getName())
                 ))
                 .build();
         return buildProject;
+    }
+
+    private CfnPipeline.StageDeclarationProperty createSourceStage() {
+        return CfnPipeline.StageDeclarationProperty.builder()
+                .name("Source")
+                .actions(List.of(
+                        CfnPipeline.ActionDeclarationProperty.builder()
+                                .name("GitHubSource")
+                                .actionTypeId(CfnPipeline.ActionTypeIdProperty.builder()
+                                        .category("Source")
+                                        .owner("ThirdParty")
+                                        .provider("GitHub")
+                                        .version("1")
+                                        .build())
+                                .configuration(Map.of(
+                                        "Owner", "{{resolve:secretsmanager:Github-access-Sebas:SecretString:Owner}}",
+                                        "Repo", "{{resolve:secretsmanager:Github-access-Sebas:SecretString:Repo}}",
+                                        "Branch", "{{resolve:secretsmanager:Github-access-Sebas:SecretString:Branch}}",
+                                        "OAuthToken", "{{resolve:secretsmanager:Github-access-Sebas:SecretString:OAuthToken}}"
+                                ))
+                                .outputArtifacts(List.of(
+                                        CfnPipeline.OutputArtifactProperty.builder()
+                                                .name("SourceOutput")
+                                                .build()
+                                ))
+                                .runOrder(1)
+                                .build()
+                ))
+                .build();
+    }
+
+    private CfnPipeline.StageDeclarationProperty createBuildStage(String projectName) {
+        return CfnPipeline.StageDeclarationProperty.builder()
+                .name("Build")
+                .actions(List.of(
+                        CfnPipeline.ActionDeclarationProperty.builder()
+                                .name("DockerBuild")
+                                .actionTypeId(CfnPipeline.ActionTypeIdProperty.builder()
+                                        .category("Build")
+                                        .owner("AWS")
+                                        .provider("CodeBuild")
+                                        .version("1")
+                                        .build())
+                                .inputArtifacts(List.of(
+                                        CfnPipeline.InputArtifactProperty.builder()
+                                                .name("SourceOutput")
+                                                .build()
+                                ))
+                                .configuration(Map.of("ProjectName", projectName))
+                                .outputArtifacts(List.of(
+                                        CfnPipeline.OutputArtifactProperty.builder()
+                                                .name("BuildOutput")
+                                                .build()
+                                ))
+                                .runOrder(1)
+                                .build()
+                ))
+                .build();
+    }
+
+    private CfnPipeline.StageDeclarationProperty createDeployStage() { //TODO get working
+        return CfnPipeline.StageDeclarationProperty.builder()
+                .name("Deploy")
+                .actions(List.of(
+                        CfnPipeline.ActionDeclarationProperty.builder()
+                                .name("ECSDeploy")
+                                .actionTypeId(CfnPipeline.ActionTypeIdProperty.builder()
+                                        .category("Deploy")
+                                        .owner("AWS")
+                                        .provider("ECS")
+                                        .version("1")
+                                        .build())
+                                .inputArtifacts(List.of(
+                                        CfnPipeline.InputArtifactProperty.builder()
+                                                .name("BuildOutput") // output from CodeBuild
+                                                .build()
+                                ))
+                                .configuration(Map.of(
+                                        "ClusterName", "my-ecs-cluster",     // replace with your cluster name
+                                        "ServiceName", "my-ecs-service",     // replace with your service name
+                                        "FileName", "imagedefinitions.json"  // see step 3
+                                ))
+                                .runOrder(1)
+                                .build()
+                ))
+                .build();
     }
 
     private CfnRole createCodeBuildRole() {

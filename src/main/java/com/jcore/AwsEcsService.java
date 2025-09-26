@@ -59,7 +59,7 @@ public class AwsEcsService {
                 .containerDefinitions(List.of(
                         CfnTaskDefinition.ContainerDefinitionProperty.builder()
                                 .name(CONTAINER_NAME)
-                                .image("039612879714.dkr.ecr.eu-central-1.amazonaws.com/sebastiaan/messenger:latest")
+                                .image("placeholder - will be replaced by CodePipeline")
                                 .cpu(256)
                                 .memory(1024)
                                 .essential(true)
