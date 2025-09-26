@@ -31,6 +31,7 @@ public class AwsCursusStack extends Stack {
     private final AwsEcsService ecsService = new AwsEcsService(this, PREFIX);
     private final AwsQueueService queueService = new AwsQueueService(this, PREFIX);
     private final AwsDatabaseService databaseService = new AwsDatabaseService(this, PREFIX);
+    private final AwsPipelineService pipelineService = new AwsPipelineService(this, PREFIX);
 
     public AwsCursusStack(final Construct scope, final String id) {
         this(scope, id, null);
@@ -102,6 +103,7 @@ public class AwsCursusStack extends Stack {
         //nlbListener.addDependency(nlbTargetGroup);
 
         var serviceSettings = ServiceSettings.builder()
+                .region(this.getRegion())
                 .cluster(cluster.getAttrArn())
                 .securityGroup(securityGroup.getAttrId())
                 .subnets(privateSubnets)
@@ -124,6 +126,9 @@ public class AwsCursusStack extends Stack {
         serviceSettings.mode("receive");
         var messengerServiceReceive = ecsService.createService(serviceSettings.build());
         messengerServiceReceive.addDependency(listener);
+
+        var repository = pipelineService.createRepository();
+        var pipeline = pipelineService.createPipeline(this.getAccount(), this.getRegion(), repository);
     }
 
     private CfnVPC createVpc(final String cidrBlock) {

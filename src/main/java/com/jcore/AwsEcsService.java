@@ -73,7 +73,9 @@ public class AwsEcsService {
                                                 .protocol("tcp")
                                                 .build()
                                 ))
-                                .logConfiguration(createLogConfiguration("sebas-cdk-messenger-service-" + settings.getMode()))
+                                .logConfiguration(
+                                        createLogConfiguration("sebas-cdk-messenger-service-" + settings.getMode(), settings.getRegion())
+                                )
                                 .build()
                 ))
                 .requiresCompatibilities(List.of("FARGATE"))
@@ -131,7 +133,7 @@ public class AwsEcsService {
                 ).build();
     }
 
-    private CfnTaskDefinition.LogConfigurationProperty createLogConfiguration(String name) {
+    private CfnTaskDefinition.LogConfigurationProperty createLogConfiguration(String name, String region) {
         return CfnTaskDefinition.LogConfigurationProperty.builder().
                 logDriver("awslogs").
                 options(
@@ -140,7 +142,7 @@ public class AwsEcsService {
                                 Map.entry("mode", "non-blocking"),
                                 Map.entry("awslogs-create-group", "true"),
                                 Map.entry("max-buffer-size", "25m"),
-                                Map.entry("awslogs-region", "eu-central-1"),
+                                Map.entry("awslogs-region", region),
                                 Map.entry("awslogs-stream-prefix", "ecs")
                         )
                 ).

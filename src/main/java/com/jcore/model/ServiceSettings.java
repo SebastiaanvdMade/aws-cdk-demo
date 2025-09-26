@@ -21,4 +21,5 @@ public class ServiceSettings {
     CfnSecret connectionString;
     String username;
     CfnSecret password;
+    String region;
 }
