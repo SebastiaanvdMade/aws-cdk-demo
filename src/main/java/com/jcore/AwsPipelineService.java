@@ -1,5 +1,6 @@
 package com.jcore;
 
+import com.jcore.model.PipelineSettings;
 import software.amazon.awscdk.services.codebuild.CfnProject;
 import software.amazon.awscdk.services.codepipeline.CfnPipeline;
 import software.amazon.awscdk.services.ecr.CfnRepository;
@@ -51,7 +52,7 @@ public class AwsPipelineService {
                 .build();
     }
 
-    public CfnProject createPipeline(String accountNR, String region, CfnRepository repository) {
+    public CfnProject createPipeline(PipelineSettings settings) {
         //Create artifact bucket for CodePipeline
         Bucket artifactBucket = Bucket.Builder.create(scope, prefix + "pipeline-artifacts").build();
 
@@ -71,10 +72,11 @@ public class AwsPipelineService {
                         .type("LINUX_CONTAINER")
                         .privilegedMode(true)
                         .environmentVariables(List.of(
-                                createEnv("IMAGE_REPO_NAME", repository.getRepositoryName()),
-                                createEnv("AWS_ACCOUNT_ID", accountNR),
+                                createEnv("IMAGE_REPO_NAME", settings.getRepositoryName()),
+                                createEnv("AWS_ACCOUNT_ID", settings.getAccountNr()),
                                 createEnv("IMAGE_TAG", "latest"),
-                                createEnv("AWS_DEFAULT_REGION", region)
+                                createEnv("AWS_DEFAULT_REGION", settings.getRegion()),
+                                createEnv("CONTAINER_NAME", settings.getContainerNameSend())
                         ))
                         .build())
                 .serviceRole(codeBuildRole.getAttrArn())
@@ -89,7 +91,8 @@ public class AwsPipelineService {
                         .build())
                 .stages(List.of(
                         createSourceStage(),
-                        createBuildStage(buildProject.getName())
+                        createBuildStage(buildProject.getName()),
+                        createDeployStage(settings)
                 ))
                 .build();
         return buildProject;
@@ -153,7 +156,7 @@ public class AwsPipelineService {
                 .build();
     }
 
-    private CfnPipeline.StageDeclarationProperty createDeployStage() { //TODO get working
+    private CfnPipeline.StageDeclarationProperty createDeployStage(PipelineSettings settings) {
         return CfnPipeline.StageDeclarationProperty.builder()
                 .name("Deploy")
                 .actions(List.of(
@@ -171,9 +174,9 @@ public class AwsPipelineService {
                                                 .build()
                                 ))
                                 .configuration(Map.of(
-                                        "ClusterName", "my-ecs-cluster",     // replace with your cluster name
-                                        "ServiceName", "my-ecs-service",     // replace with your service name
-                                        "FileName", "imagedefinitions.json"  // see step 3
+                                        "ClusterName", settings.getClusterName(),
+                                        "ServiceName", settings.getServiceName(),
+                                        "FileName", "imagedefinitions.json"
                                 ))
                                 .runOrder(1)
                                 .build()
@@ -245,6 +248,17 @@ public class AwsPipelineService {
                         "Effect", "Allow",
                         "Action", List.of(
                                 "iam:PassRole"
+                        ),
+                        "Resource", "*"
+                ),
+                Map.of("Effect", "Allow",
+                        "Action", List.of(
+                                "ecs:DescribeServices",
+                                "ecs:DescribeTaskDefinition",
+                                "ecs:DescribeTasks",
+                                "ecs:ListTasks",
+                                "ecs:RegisterTaskDefinition",
+                                "ecs:UpdateService"
                         ),
                         "Resource", "*"
                 )

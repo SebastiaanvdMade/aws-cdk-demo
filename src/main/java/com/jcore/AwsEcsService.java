@@ -58,8 +58,8 @@ public class AwsEcsService {
                 )
                 .containerDefinitions(List.of(
                         CfnTaskDefinition.ContainerDefinitionProperty.builder()
-                                .name(CONTAINER_NAME)
-                                .image("placeholder - will be replaced by CodePipeline")
+                                .name(settings.getContainerName())
+                                .image("placeholder") //is replaced by the pipeline
                                 .cpu(256)
                                 .memory(1024)
                                 .essential(true)
@@ -158,7 +158,7 @@ public class AwsEcsService {
                 .taskDefinition(taskDefinition.getAttrTaskDefinitionArn())
                 .loadBalancers(List.of(
                         CfnService.LoadBalancerProperty.builder()
-                                .containerName(CONTAINER_NAME)
+                                .containerName(settings.getContainerName())
                                 .containerPort(settings.getPort())
                                 .targetGroupArn(settings.getTargetGroup())
                                 .build())
@@ -172,7 +172,7 @@ public class AwsEcsService {
                                 .build())
                         .build()
                 )
-                .desiredCount(1)
+                .desiredCount(0) //set to 1 on deploy
                 .cluster(settings.getCluster())
                 .launchType("FARGATE")
                 .platformVersion("LATEST")

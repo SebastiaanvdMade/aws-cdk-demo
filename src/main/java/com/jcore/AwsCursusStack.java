@@ -1,22 +1,32 @@
 package com.jcore;
 
+import com.jcore.model.PipelineSettings;
 import com.jcore.model.ServiceSettings;
+import org.jetbrains.annotations.NotNull;
 import software.amazon.awscdk.CfnOutput;
 import software.amazon.awscdk.CfnTag;
 import software.amazon.awscdk.Stack;
 import software.amazon.awscdk.StackProps;
 import software.amazon.awscdk.Tags;
+import software.amazon.awscdk.services.docdb.CfnDBCluster;
 import software.amazon.awscdk.services.ec2.CfnEIP;
 import software.amazon.awscdk.services.ec2.CfnInternetGateway;
 import software.amazon.awscdk.services.ec2.CfnNatGateway;
 import software.amazon.awscdk.services.ec2.CfnRoute;
 import software.amazon.awscdk.services.ec2.CfnRouteTable;
+import software.amazon.awscdk.services.ec2.CfnSecurityGroup;
 import software.amazon.awscdk.services.ec2.CfnSubnet;
 import software.amazon.awscdk.services.ec2.CfnSubnetRouteTableAssociation;
 import software.amazon.awscdk.services.ec2.CfnVPC;
 import software.amazon.awscdk.services.ec2.CfnVPCGatewayAttachment;
 import software.amazon.awscdk.services.ec2.ISubnet;
 import software.amazon.awscdk.services.ec2.Subnet;
+import software.amazon.awscdk.services.ecr.CfnRepository;
+import software.amazon.awscdk.services.ecs.CfnCluster;
+import software.amazon.awscdk.services.ecs.CfnService;
+import software.amazon.awscdk.services.secretsmanager.CfnSecret;
+import software.amazon.awscdk.services.sns.CfnTopic;
+import software.amazon.awscdk.services.sqs.CfnQueue;
 import software.constructs.Construct;
 
 import java.util.Collections;
@@ -102,33 +112,25 @@ public class AwsCursusStack extends Stack {
         var nlbListener = ecsService.createNLBListener(networkLoadBalancer.getAttrLoadBalancerArn(), nlbTargetGroup.getAttrTargetGroupArn(), 80);
         //nlbListener.addDependency(nlbTargetGroup);
 
-        var serviceSettings = ServiceSettings.builder()
-                .region(this.getRegion())
-                .cluster(cluster.getAttrArn())
-                .securityGroup(securityGroup.getAttrId())
-                .subnets(privateSubnets)
-                .port(80)
-                .snsTopic(topic.getAttrTopicArn())
-                .sqsQueue(queue.getQueueName())
-                .databaseUrl(database.getAttrEndpoint())
-                .connectionString(connectionString)
-                .username(USER)
-                .password(passwordSecret);
-
+        var serviceSettings = getDefaultMessengerSettings(cluster, securityGroup, privateSubnets, topic, queue, database, connectionString, passwordSecret);
         //Messenger SEND
         serviceSettings.targetGroup(targetGroupSend.getAttrTargetGroupArn());
         serviceSettings.mode("send");
+        serviceSettings.containerName("berichtenverstuurding");
         var messengerServiceSend = ecsService.createService(serviceSettings.build());
         messengerServiceSend.addDependency(listener);
 
         //Messenger RECEIVE
         serviceSettings.targetGroup(targetGroupReceive.getAttrTargetGroupArn());
         serviceSettings.mode("receive");
+        serviceSettings.containerName("berichtontvangding");
         var messengerServiceReceive = ecsService.createService(serviceSettings.build());
         messengerServiceReceive.addDependency(listener);
 
         var repository = pipelineService.createRepository();
-        var pipeline = pipelineService.createPipeline(this.getAccount(), this.getRegion(), repository);
+
+        PipelineSettings pipelineSettings = getPipelineSettings(repository, cluster, messengerServiceSend);
+        var pipeline = pipelineService.createPipeline(pipelineSettings);
     }
 
     private CfnVPC createVpc(final String cidrBlock) {
@@ -233,5 +235,30 @@ public class AwsCursusStack extends Stack {
         return natGateway;
     }
 
+    private ServiceSettings.ServiceSettingsBuilder getDefaultMessengerSettings(CfnCluster cluster, CfnSecurityGroup securityGroup, List<@NotNull String> privateSubnets, CfnTopic topic, CfnQueue queue, CfnDBCluster database, CfnSecret connectionString, CfnSecret passwordSecret) {
+        return ServiceSettings.builder()
+                .region(this.getRegion())
+                .cluster(cluster.getAttrArn())
+                .securityGroup(securityGroup.getAttrId())
+                .subnets(privateSubnets)
+                .port(80)
+                .snsTopic(topic.getAttrTopicArn())
+                .sqsQueue(queue.getQueueName())
+                .databaseUrl(database.getAttrEndpoint())
+                .connectionString(connectionString)
+                .username(USER)
+                .password(passwordSecret);
+    }
 
+    private PipelineSettings getPipelineSettings(CfnRepository repository, CfnCluster cluster, CfnService messengerServiceSend) {
+        return PipelineSettings.builder()
+                .accountNr(this.getAccount())
+                .region(this.getRegion())
+                .repositoryName(repository.getRepositoryName())
+                .clusterName(cluster.getClusterName())
+                .serviceName(messengerServiceSend.getServiceName())
+                .containerNameSend("berichtenverstuurding")
+                .containerNameReceive("berichtontvangding")
+                .build();
+    }
 }

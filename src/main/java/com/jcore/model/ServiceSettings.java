@@ -10,6 +10,7 @@ import java.util.List;
 @Builder
 public class ServiceSettings {
     String cluster;
+    String containerName;
     String targetGroup;
     String securityGroup;
     List<String> subnets;

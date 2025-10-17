@@ -70,7 +70,7 @@ public class AwsDatabaseService {
                 .generateSecretString(CfnSecret.GenerateSecretStringProperty.builder()
                         .secretStringTemplate("{\"username\":\"%s\"}".formatted(username))
                         .generateStringKey("password")
-                        .excludeCharacters("\"@/\\ '")
+                        .excludeCharacters("\"@/\\ :;'{}[]")
                         .passwordLength(16)
                         .build())
                 .build();
