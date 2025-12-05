@@ -172,7 +172,7 @@ public class AwsEcsService {
                                 .build())
                         .build()
                 )
-                .desiredCount(0) //set to 1 on deploy
+                .desiredCount(1)
                 .cluster(settings.getCluster())
                 .launchType("FARGATE")
                 .platformVersion("LATEST")

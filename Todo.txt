@@ -1,0 +1,12 @@
+Split de applicatie stack:
+    1. Platform (dingen die kunnen blijven staan)
+        repository
+        subnets
+
+    2. Foundation
+        nat-gateway
+        pipeline zonder deploy
+
+    3. Application
+        services
+        deploy stap pipeline

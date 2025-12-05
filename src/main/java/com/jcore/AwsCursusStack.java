@@ -23,7 +23,6 @@ import software.amazon.awscdk.services.ec2.ISubnet;
 import software.amazon.awscdk.services.ec2.Subnet;
 import software.amazon.awscdk.services.ecr.CfnRepository;
 import software.amazon.awscdk.services.ecs.CfnCluster;
-import software.amazon.awscdk.services.ecs.CfnService;
 import software.amazon.awscdk.services.secretsmanager.CfnSecret;
 import software.amazon.awscdk.services.sns.CfnTopic;
 import software.amazon.awscdk.services.sqs.CfnQueue;
@@ -31,11 +30,15 @@ import software.constructs.Construct;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class AwsCursusStack extends Stack {
 
     private static final String PREFIX = "sebastiaans-";
     private static final String USER = "sebastiaan";
+
+    private static final String SEND_CONTAINER = "berichtenverstuurding";
+    private static final String RECEIVE_CONTAINER = "berichtenontvangding";
 
     private final AwsEc2Service ec2Service = new AwsEc2Service(this, PREFIX);
     private final AwsEcsService ecsService = new AwsEcsService(this, PREFIX);
@@ -110,27 +113,36 @@ public class AwsCursusStack extends Stack {
                 false);
         var nlbTargetGroup = ecsService.createTargetGroup(vpc.getAttrVpcId(), "send", 80, List.of(applicationBalancer.getRef()));
         var nlbListener = ecsService.createNLBListener(networkLoadBalancer.getAttrLoadBalancerArn(), nlbTargetGroup.getAttrTargetGroupArn(), 80);
-        //nlbListener.addDependency(nlbTargetGroup);
+
+        var repository = pipelineService.createRepository();
+
+        PipelineSettings pipelineSettings = getPipelineSettings(repository, cluster);
+        var pipeline = pipelineService.createPipeline(pipelineSettings);
 
         var serviceSettings = getDefaultMessengerSettings(cluster, securityGroup, privateSubnets, topic, queue, database, connectionString, passwordSecret);
         //Messenger SEND
         serviceSettings.targetGroup(targetGroupSend.getAttrTargetGroupArn());
         serviceSettings.mode("send");
-        serviceSettings.containerName("berichtenverstuurding");
+        serviceSettings.containerName(SEND_CONTAINER);
         var messengerServiceSend = ecsService.createService(serviceSettings.build());
         messengerServiceSend.addDependency(listener);
 
         //Messenger RECEIVE
         serviceSettings.targetGroup(targetGroupReceive.getAttrTargetGroupArn());
         serviceSettings.mode("receive");
-        serviceSettings.containerName("berichtontvangding");
+        serviceSettings.containerName(RECEIVE_CONTAINER);
         var messengerServiceReceive = ecsService.createService(serviceSettings.build());
         messengerServiceReceive.addDependency(listener);
 
-        var repository = pipelineService.createRepository();
-
-        PipelineSettings pipelineSettings = getPipelineSettings(repository, cluster, messengerServiceSend);
-        var pipeline = pipelineService.createPipeline(pipelineSettings);
+        pipelineSettings.setServices(Map.of(
+                "send", new PipelineSettings.Service(
+                        messengerServiceSend.getAttrName(),
+                        SEND_CONTAINER),
+                "receive", new PipelineSettings.Service(
+                        messengerServiceReceive.getAttrName(),
+                        RECEIVE_CONTAINER)
+        ));
+        pipelineService.addDeployStepsToPipeline(pipeline, pipelineSettings);
     }
 
     private CfnVPC createVpc(final String cidrBlock) {
@@ -250,15 +262,16 @@ public class AwsCursusStack extends Stack {
                 .password(passwordSecret);
     }
 
-    private PipelineSettings getPipelineSettings(CfnRepository repository, CfnCluster cluster, CfnService messengerServiceSend) {
+    private PipelineSettings getPipelineSettings(CfnRepository repository, CfnCluster cluster) {
         return PipelineSettings.builder()
                 .accountNr(this.getAccount())
                 .region(this.getRegion())
                 .repositoryName(repository.getRepositoryName())
                 .clusterName(cluster.getClusterName())
-                .serviceName(messengerServiceSend.getServiceName())
-                .containerNameSend("berichtenverstuurding")
-                .containerNameReceive("berichtontvangding")
+                .services(Map.of(
+                        "send", new PipelineSettings.Service("", SEND_CONTAINER),
+                        "receive", new PipelineSettings.Service("", RECEIVE_CONTAINER)
+                ))
                 .build();
     }
 }

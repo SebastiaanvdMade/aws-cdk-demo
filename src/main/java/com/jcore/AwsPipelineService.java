@@ -52,7 +52,7 @@ public class AwsPipelineService {
                 .build();
     }
 
-    public CfnProject createPipeline(PipelineSettings settings) {
+    public CfnPipeline createPipeline(PipelineSettings settings) {
         //Create artifact bucket for CodePipeline
         Bucket artifactBucket = Bucket.Builder.create(scope, prefix + "pipeline-artifacts").build();
 
@@ -76,7 +76,8 @@ public class AwsPipelineService {
                                 createEnv("AWS_ACCOUNT_ID", settings.getAccountNr()),
                                 createEnv("IMAGE_TAG", "latest"),
                                 createEnv("AWS_DEFAULT_REGION", settings.getRegion()),
-                                createEnv("CONTAINER_NAME", settings.getContainerNameSend())
+                                createEnv("CONTAINER_NAME_SEND", settings.getServices().get("send").containerName()),
+                                createEnv("CONTAINER_NAME_RECEIVE", settings.getServices().get("receive").containerName())
                         ))
                         .build())
                 .serviceRole(codeBuildRole.getAttrArn())
@@ -91,11 +92,15 @@ public class AwsPipelineService {
                         .build())
                 .stages(List.of(
                         createSourceStage(),
-                        createBuildStage(buildProject.getName()),
-                        createDeployStage(settings)
+                        createBuildStage(buildProject.getName())
                 ))
                 .build();
-        return buildProject;
+        return pipeline;
+    }
+
+    public void addDeployStepsToPipeline(CfnPipeline pipeline, PipelineSettings settings) {
+        ((List<Object>) pipeline.getStages()).add(createDeployStage("send", settings.getClusterName(), settings.getServices().get("send")));
+        ((List<Object>) pipeline.getStages()).add(createDeployStage("receive", settings.getClusterName(), settings.getServices().get("receive")));
     }
 
     private CfnPipeline.StageDeclarationProperty createSourceStage() {
@@ -156,9 +161,9 @@ public class AwsPipelineService {
                 .build();
     }
 
-    private CfnPipeline.StageDeclarationProperty createDeployStage(PipelineSettings settings) {
+    private CfnPipeline.StageDeclarationProperty createDeployStage(String mode, String clusterName, PipelineSettings.Service service) {
         return CfnPipeline.StageDeclarationProperty.builder()
-                .name("Deploy")
+                .name("Deploy-" + mode)
                 .actions(List.of(
                         CfnPipeline.ActionDeclarationProperty.builder()
                                 .name("ECSDeploy")
@@ -174,9 +179,9 @@ public class AwsPipelineService {
                                                 .build()
                                 ))
                                 .configuration(Map.of(
-                                        "ClusterName", settings.getClusterName(),
-                                        "ServiceName", settings.getServiceName(),
-                                        "FileName", "imagedefinitions.json"
+                                        "ClusterName", clusterName,
+                                        "ServiceName", service.serviceName(),
+                                        "FileName", "imagedefinitions-%s.json".formatted(mode)
                                 ))
                                 .runOrder(1)
                                 .build()

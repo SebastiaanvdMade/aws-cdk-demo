@@ -3,6 +3,8 @@ package com.jcore.model;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.Map;
+
 @Data
 @Builder
 public class PipelineSettings {
@@ -10,7 +12,8 @@ public class PipelineSettings {
     String region;
     String repositoryName;
     String clusterName;
-    String serviceName;
-    String containerNameSend;
-    String containerNameReceive;
+    Map<String, Service> services;
+
+    public record Service(String serviceName, String containerName) {
+    }
 }
